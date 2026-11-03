@@ -46,6 +46,8 @@ button[aria-pressed="true"] { border: 2px solid var(--accent); background: color
 .wrap { overflow: auto; background: var(--panel); border-radius: 10px; padding: 14px; min-width: 0; }
 #room { display: block; cursor: grab; touch-action: none; }
 .pal button { touch-action: none; cursor: grab; }
+#room { display: block; margin: 0 auto; } /* height-limited grids leave side space; center it */
+.wrap .info { text-align: center; }
 #ghost { position: fixed; pointer-events: none; opacity: .8; z-index: 20; }
 .info { font-size: 13px; color: var(--muted); margin-top: 10px; }
 .info .bad { color: var(--warn); font-weight: 600; }
