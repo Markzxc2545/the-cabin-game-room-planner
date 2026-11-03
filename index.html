@@ -1,0 +1,619 @@
+<title>Cabin Room Planner</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@600;700&family=Work+Sans:wght@400;500;600&display=swap">
+<style>
+/* layout: toolbar on top, piece palette left, block grid right; stacks on phone */
+:root {
+  --bg: #eef1ec; --panel: #ffffff; --fg: #1f2a24; --muted: #5d6b62; --line: rgba(30,40,35,.18);
+  --accent: #2f6b4f; --warn: #c0392b;
+  --display: "Zilla Slab", Georgia, serif; --body: "Work Sans", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #161b18; --panel: #1f2622; --fg: #e6ece8; --muted: #9aa8a0; --line: rgba(230,240,235,.16);
+  --accent: #6fbf95; --warn: #ff7a6b; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #161b18; --panel: #1f2622; --fg: #e6ece8; --muted: #9aa8a0; --line: rgba(230,240,235,.16);
+  --accent: #6fbf95; --warn: #ff7a6b; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font-family: var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 16px; }
+h1 { font-family: var(--display); font-size: 1.6rem; margin: 0; text-wrap: balance; }
+.top { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.ctrl { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; display: flex; gap: 6px; align-items: center; }
+input, select { font: inherit; font-size: 14px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--fg); }
+input[type=number] { width: 56px; }
+button { font: inherit; font-size: 14px; font-weight: 500; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button[aria-pressed="true"] { border: 2px solid var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
+.main { display: grid; grid-template-columns: 240px 1fr; gap: 16px; align-items: start; }
+@media (max-width: 720px) { .main { grid-template-columns: 1fr; } }
+.side { background: var(--panel); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.side h2 { font-family: var(--display); font-size: 1rem; margin: 0; }
+.pal { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.pal button { padding: 6px; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; }
+.pal canvas { width: 52px; height: 52px; }
+.pal button { font-size: 11px; line-height: 1.2; text-align: center; min-width: 0; overflow-wrap: anywhere; }
+.side label { flex-wrap: wrap; }
+.prio { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.prio li span { display: inline-block; min-width: 0; width: calc(100% - 64px); }
+.prio button { padding: 2px 8px; font-size: 12px; }
+.prio button:disabled { opacity: .35; cursor: default; }
+.side select { width: 100%; max-width: 100%; text-overflow: ellipsis; }
+.side, .info { overflow-wrap: anywhere; }
+.pal button.used { opacity: .45; }
+.hbadge { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%; background: #111; color: #ffe14d; font-size: 10px; }
+.wrap { overflow: auto; background: var(--panel); border-radius: 10px; padding: 14px; min-width: 0; }
+#room { display: block; cursor: grab; touch-action: none; }
+.pal button { touch-action: none; cursor: grab; }
+#ghost { position: fixed; pointer-events: none; opacity: .8; z-index: 20; }
+.info { font-size: 13px; color: var(--muted); margin-top: 10px; }
+.info .bad { color: var(--warn); font-weight: 600; }
+textarea { width: 100%; box-sizing: border-box; font: 12px ui-monospace, monospace; height: 70px; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; }
+.kbd { font-size: 12px; color: var(--muted); }
+</style>
+
+<div class="top">
+  <h1>Cabin Room Planner</h1>
+  <div class="ctrl">
+    <label for="gw">Blocks wide <input id="gw" type="number" min="1" max="12" value="5"></label>
+    <label for="gh">Blocks high <input id="gh" type="number" min="1" max="12" value="5"></label>
+    <label for="zoom">Zoom <input id="zoom" type="range" min="8" max="40" value="22"></label>
+    <button id="clear">Clear</button>
+  </div>
+</div>
+
+<div class="main">
+  <aside class="side">
+    <h2>Draw mode</h2>
+    <div class="ctrl"><button id="drawmode" aria-pressed="false">Draw mode: off</button><button id="newgame">New game</button><button id="undo">Undo</button></div>
+    <label for="target">Aim for <select id="target">
+      <option value="guide">Guide types (3)</option>
+      <option value="4R+8R">4R+8R</option><option value="6R+6R">6R+6R</option><option value="4R+6R">4R+6R</option>
+      <option value="any">Any two-loop layout</option>
+    </select></label>
+    <div class="kbd">Rank suggestions by (top matters most):</div>
+    <ol class="prio" id="priority"></ol>    <div class="kbd">Turn it on, then tap each room card you draw to put it in your hand (up to 3, like the game). Highlighted blocks show the best card from your hand for each spot, ranked by the list below. Tap a block to play that card there. If nothing is highlighted, hold. Rooms other players place: drag them onto the grid.</div>
+    <h2>Room cards</h2>
+    <div class="pal" id="pal"></div>
+    <div class="ctrl"><button id="trot">Rotate room (R)</button></div>
+    <div class="kbd">Drag a room onto the grid. Tap a placed room to rotate it. Drag it to move, or off the grid to remove. The Dining Room (cross) is the fixed start room. Faded cards are already placed.</div>
+    <div class="kbd"><b class="hbadge">H</b> Hiding hole during The Basement event. Found in the game files for both Straight Hallways, both T-Hallways and the Bathroom.</div>
+    <h2>Presets</h2>
+    <div class="ctrl" id="presets"></div>
+    <h2>From the Steam guide</h2>
+    <div class="ctrl" id="guide-presets"></div>
+    <h2>Save / load</h2>
+    <textarea id="json" aria-label="Layout JSON"></textarea>
+    <div class="ctrl"><button id="copy">Copy layout</button><button id="load">Load from box</button></div>
+  </aside>
+  <section class="wrap">
+    <canvas id="room"></canvas>
+    <canvas id="ghost" hidden></canvas>
+    <div class="info" id="info"></div>
+  </section>
+</div>
+
+<script>
+// block value: 0 empty, else room id * 32 + open sides as bits (N1 E2 S4 W8)
+const N = 1, E = 2, S = 4, W = 8;
+const rotl = m => ((m << 1) | (m >> 3)) & 15;
+const opp = b => rotl(rotl(b));
+const GREY = "#636363", VOID = "#000000";
+const shapeOf = m => { const n = [N, E, S, W].filter(b => m & b).length; return n === 1 ? "dead" : n === 3 ? "T" : n === 4 ? "X" : (m === 5 || m === 10) ? "I" : "L"; };
+// the 13 room cards; hide = has a hiding hole in The Basement event (LowerFloorsManual_HideyHole in the game files)
+const ROOMS = [
+  ["Dining Room", "Dining", "X", false], ["Cellar", "Cellar", "dead", false],
+  ["Furnace Room", "Furnace", "dead", false], ["Bathroom", "Bath", "dead", true],
+  ["Study", "Study", "I", false], ["Straight Hallway I", "Hall I", "I", true], ["Straight Hallway II", "Hall II", "I", true],
+  ["Kitchen", "Kitchen", "L", false], ["Bedroom", "Bed", "L", false], ["L-Hallway", "L-Hall", "L", false],
+  ["Living Room", "Living", "T", false], ["T-Hallway I", "T-Hall I", "T", true], ["T-Hallway II", "T-Hall II", "T", true],
+];
+const BASE = { dead: N, I: N | S, L: N | E, T: N | E | S, X: 15 };
+const DINING = 1, CELLAR = 2;
+const roomOf = v => v >> 5;
+const room = v => ROOMS[roomOf(v) - 1];
+const DINING_V = DINING * 32 + 15;
+function color(v) {
+  if (roomOf(v) === CELLAR) return VOID;
+  return { dead: "#ffbb6b", I: "#6b88ff", L: "#ee6bff", T: "#6fffb0", X: "#ff6b6b" }[shapeOf(v & 15)];
+}
+// 4x4 cells of one block: grey walls, colored center 2x2 plus middle two cells of each open side
+function cells(v) {
+  if (!v) return Array(16).fill(VOID);
+  const out = Array(16).fill(GREY), c = color(v), m = v & 15, set = (x, y) => out[y * 4 + x] = c;
+  [[1,1],[2,1],[1,2],[2,2]].forEach(p => set(...p));
+  if (m & N) { set(1,0); set(2,0); } if (m & S) { set(1,3); set(2,3); }
+  if (m & W) { set(0,1); set(0,2); } if (m & E) { set(3,1); set(3,2); }
+  return out;
+}
+// open sides that hit the edge, an empty block, or a wall
+function badEnds(g, w, h) {
+  const bad = [], d = { [N]: [0,-1], [E]: [1,0], [S]: [0,1], [W]: [-1,0] };
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const m = g[y * w + x] & 15;
+    for (const b of [N, E, S, W]) if (m & b) {
+      const nx = x + d[b][0], ny = y + d[b][1];
+      const nm = nx >= 0 && ny >= 0 && nx < w && ny < h ? g[ny * w + nx] & 15 : 0;
+      if (!(nm & opp(b))) bad.push([x, y, b]);
+    }
+  }
+  return bad;
+}
+console.assert(rotl(N) === E && rotl(W) === N && opp(E) === W, "rotate");
+console.assert(badEnds([E, W], 2, 1).length === 0 && badEnds([E, 0], 2, 1).length === 1, "open ends");
+
+function draw(cv, g, w, h, c, bad = [], labels = c >= 16) {
+  const W4 = w * 4, H4 = h * 4, f = [];
+  for (let y = 0; y < H4; y++) for (let x = 0; x < W4; x++) f.push(cells(g[(y >> 2) * w + (x >> 2)])[(y % 4) * 4 + x % 4]);
+  cv.width = W4 * c; cv.height = H4 * c;
+  const ctx = cv.getContext("2d");
+  f.forEach((col, i) => { ctx.fillStyle = col; ctx.fillRect((i % W4) * c, Math.floor(i / W4) * c, c, c); });
+  ctx.strokeStyle = VOID; ctx.lineWidth = Math.max(2, c / 8);
+  ctx.beginPath();
+  for (let y = 0; y < H4; y++) for (let x = 0; x < W4; x++) {
+    const v = f[y * W4 + x];
+    if (x + 1 < W4 && (f[y * W4 + x + 1] !== v || (x + 1) % 4 === 0)) { ctx.moveTo((x + 1) * c, y * c); ctx.lineTo((x + 1) * c, (y + 1) * c); }
+    if (y + 1 < H4 && (f[(y + 1) * W4 + x] !== v || (y + 1) % 4 === 0)) { ctx.moveTo(x * c, (y + 1) * c); ctx.lineTo((x + 1) * c, (y + 1) * c); }
+  }
+  ctx.stroke();
+  ctx.fillStyle = "#ff2b2b";
+  bad.forEach(([x, y, b]) => {
+    const bx = x * 4 * c, by = y * 4 * c, t = c * .6;
+    const r = { [N]: [c, 0, 2 * c, t], [S]: [c, 4 * c - t, 2 * c, t], [W]: [0, c, t, 2 * c], [E]: [4 * c - t, c, t, 2 * c] }[b];
+    ctx.fillRect(bx + r[0], by + r[1], r[2], r[3]);
+  });
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  g.forEach((v, i) => {
+    if (!v) return;
+    const cx = (i % w) * 4 * c + 2 * c, cy = Math.floor(i / w) * 4 * c + 2 * c, [, short, , hide] = room(v);
+    if (labels) {
+      ctx.font = `600 ${Math.round(c * .55)}px system-ui, sans-serif`;
+      ctx.fillStyle = roomOf(v) === CELLAR ? "#ffffff" : "#111111";
+      ctx.fillText(short, cx, cy + (hide ? c * .45 : 0), 4 * c - 4);
+    }
+    if (hide) { // hiding-hole badge
+      const r = Math.max(5, c * .42), by = labels ? cy - c * .4 : cy;
+      ctx.fillStyle = "#111111"; ctx.beginPath(); ctx.arc(cx, by, r, 0, 7); ctx.fill();
+      ctx.fillStyle = "#ffe14d"; ctx.font = `700 ${Math.round(r * 1.2)}px system-ui, sans-serif`; ctx.fillText("H", cx, by + 1);
+    }
+  });
+}
+
+const dirs = { [N]: [0,-1], [E]: [1,0], [S]: [0,1], [W]: [-1,0] };
+// loops = matched doors - rooms + connected groups
+function loops(g, w, h) {
+  const p = g.map((_, i) => i), find = i => p[i] === i ? i : (p[i] = find(p[i]));
+  let edges = 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x;
+    if (x + 1 < w && (g[i] & E) && (g[i + 1] & W)) { edges++; p[find(i)] = find(i + 1); }
+    if (y + 1 < h && (g[i] & S) && (g[i + w] & N)) { edges++; p[find(i)] = find(i + w); }
+  }
+  const rooms = g.map((v, i) => v ? find(i) : -1).filter(r => r >= 0);
+  return edges - rooms.length + new Set(rooms).size;
+}
+console.assert(loops([E|S, S|W, N|E, N|W], 2, 2) === 1 && loops([E, W], 2, 1) === 0, "loops");
+// Cellar's door must open onto the Dining Room
+function cellarOk(g, w, h) {
+  const i = g.findIndex(v => roomOf(v) === CELLAR);
+  if (i < 0) return true;
+  const [dx, dy] = dirs[g[i] & 15], x = i % w + dx, y = Math.floor(i / w) + dy;
+  return x >= 0 && y >= 0 && x < w && y < h && roomOf(g[y * w + x]) === DINING;
+}
+// older layouts stored only the shape (mask, or 16+mask for the Cellar): give each block the next free room of that shape
+function toRooms(g) {
+  const taken = new Set(g.filter(v => v >= 32).map(roomOf));
+  return g.map(v => {
+    if (!v || v >= 32) return v;
+    const m = v & 15, want = v >= 16 ? "cellar" : shapeOf(m);
+    const id = ROOMS.findIndex(([name, , shape], i) => !taken.has(i + 1) && (want === "cellar" ? i + 1 === CELLAR : i + 1 !== CELLAR && shape === want)) + 1;
+    if (!id) return 0;
+    taken.add(id);
+    return id * 32 + m;
+  });
+}
+// door steps from each room a breaker can spawn in (all but Dining and Cellar) to the nearest hiding room
+function hideSteps(g, w, h) {
+  const dist = new Map(), q = [];
+  g.forEach((v, i) => { if (v && room(v)[3]) { dist.set(i, 0); q.push(i); } });
+  for (let k = 0; k < q.length; k++) {
+    const i = q[k], x = i % w, y = Math.floor(i / w);
+    for (const b of [N, E, S, W]) {
+      const [dx, dy] = dirs[b], nx = x + dx, ny = y + dy, j = ny * w + nx;
+      if ((g[i] & b) && nx >= 0 && ny >= 0 && nx < w && ny < h && (g[j] & opp(b)) && !dist.has(j)) { dist.set(j, dist.get(i) + 1); q.push(j); }
+    }
+  }
+  const ds = g.map((v, i) => v && ![DINING, CELLAR].includes(roomOf(v)) ? dist.get(i) ?? Infinity : null).filter(d => d !== null);
+  return ds.length ? Math.max(...ds) : 0;
+}
+console.assert(JSON.stringify(toRooms([15, 17, 1, 5, 3])) === JSON.stringify([DINING_V, 65, 97, 165, 259]), "toRooms");
+const $ = id => document.getElementById(id);
+// start: Dining Room in the middle block
+const fresh = (w, h) => { const g = Array(w * h).fill(0); g[(h >> 1) * w + (w >> 1)] = DINING_V; return { w, h, g }; };
+const used = id => st.g.some(v => roomOf(v) === id);
+let st = fresh(5, 5);
+let tool = 2, toolV = ROOMS.map(([, , shape], i) => (i + 1) * 32 + BASE[shape]), C = 22; // tool = room id
+const rotV = v => (v & ~15) | rotl(v & 15);
+
+function render() {
+  const bad = badEnds(st.g, st.w, st.h);
+  draw($("room"), st.g, st.w, st.h, C, bad);
+  const plans = drawMode ? plansLeft() : [];
+  lastSpots = drawMode && hand.size ? handMoves(plans) : new Map();
+  drawSpots(lastSpots);
+  const placed = st.g.filter(Boolean).length, hides = st.g.filter(v => v && room(v)[3]).length;
+  const far = hideSteps(st.g, st.w, st.h);
+  $("info").innerHTML = drawInfo(plans) + `${placed}/13 rooms · <b>${loops(st.g, st.w, st.h)} loops</b> · ${hides}/5 hiding rooms · ` +
+    `breaker to hiding: ${far === Infinity ? "no path" : `≤ ${far} door${far === 1 ? "" : "s"}`} · ` +
+    (bad.length ? `<span class="bad">${bad.length} open ends</span> (red marks)` : "all doors connect") +
+    (cellarOk(st.g, st.w, st.h) ? "" : ` · <span class="bad">Cellar must open onto the Dining Room</span>`);
+  renderPal();
+  $("json").value = JSON.stringify(st);
+  try { localStorage.setItem("cabin-blocks-v2", $("json").value); } catch {}
+}
+function renderPal() {
+  $("pal").innerHTML = "";
+  ROOMS.forEach(([name], i) => {
+    const id = i + 1;
+    if (id === DINING) return; // start room, always on the table
+    const b = document.createElement("button");
+    b.setAttribute("aria-pressed", drawMode ? hand.has(id) : id === tool);
+    if (used(id)) b.classList.add("used");
+    const cv = document.createElement("canvas");
+    draw(cv, [toolV[i]], 1, 1, 13);
+    b.append(cv, name);
+    b.onpointerdown = e => { tool = id; startDrag(e, toolV[i], -1); };
+    $("pal").appendChild(b);
+  });
+}
+const rotTool = () => { toolV[tool - 1] = rotV(toolV[tool - 1]); renderPal(); };
+
+// block index under the pointer, -1 when outside the grid
+function blockAt(e) {
+  const r = $("room").getBoundingClientRect();
+  const x = Math.floor((e.clientX - r.left) / (4 * C)), y = Math.floor((e.clientY - r.top) / (4 * C));
+  return x < 0 || y < 0 || x >= st.w || y >= st.h ? -1 : y * st.w + x;
+}
+// from = -1 for a new piece from the palette, else the block index being moved
+function startDrag(e, v, from) {
+  e.preventDefault();
+  const ghost = $("ghost"), x0 = e.clientX, y0 = e.clientY;
+  let moved = false;
+  draw(ghost, [v], 1, 1, C);
+  const move = ev => {
+    if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 6) return;
+    moved = true; ghost.hidden = false;
+    ghost.style.left = ev.clientX - 2 * C + "px"; ghost.style.top = ev.clientY - 2 * C + "px";
+  };
+  const up = ev => {
+    removeEventListener("pointermove", move); removeEventListener("pointerup", up); ghost.hidden = true;
+    const t = blockAt(ev), id = roomOf(v), before = JSON.stringify(st);
+    if (t >= 0 && roomOf(st.g[t]) === DINING) return; // Dining Room stays put
+    if (!moved && from < 0) { // tap on a card: select it, or in draw mode add it to / take it out of your hand
+      if (drawMode && !used(id)) hand.has(id) ? hand.delete(id) : hand.add(id);
+      return render();
+    }
+    if (!moved) st.g[from] = rotV(st.g[from]); // tap on a placed room: rotate it
+    else if (from < 0) {
+      if (t < 0) return;
+      const was = st.g.findIndex(x => roomOf(x) === id);
+      if (was >= 0) st.g[was] = 0; // each card exists once: placing it again moves it
+      st.g[t] = v;
+    }
+    else if (t < 0) st.g[from] = 0; // dropped outside: remove
+    else [st.g[t], st.g[from]] = [st.g[from], st.g[t]]; // move, swapping with whatever was there
+    if (JSON.stringify(st) !== before) history.push(before);
+    render();
+  };
+  addEventListener("pointermove", move); addEventListener("pointerup", up);
+}
+$("room").onpointerdown = e => {
+  const i = blockAt(e), s = lastSpots.get(i);
+  if (s) { history.push(JSON.stringify(st)); st.g[i] = s.v; hand.delete(roomOf(s.v)); return render(); } // draw mode: play that card from your hand here
+  if (i >= 0 && st.g[i] && roomOf(st.g[i]) !== DINING) startDrag(e, st.g[i], i);
+};
+$("trot").onclick = rotTool;
+addEventListener("keydown", e => { if (e.key.toLowerCase() === "r" && !e.target.matches("input, textarea")) rotTool(); });
+$("zoom").oninput = () => { C = +$("zoom").value; render(); };
+$("gw").oninput = $("gh").oninput = () => {
+  const w = Math.max(1, Math.min(12, +$("gw").value || 1)), h = Math.max(1, Math.min(12, +$("gh").value || 1)), g = [];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) g.push(x < st.w && y < st.h ? st.g[y * st.w + x] : 0);
+  if (!g.includes(DINING_V)) g[(h >> 1) * w + (w >> 1)] = DINING_V; // keep the Dining Room if shrinking cut it off
+  st = { w, h, g }; render();
+};
+$("clear").onclick = () => { st = fresh(st.w, st.h); render(); };
+// two-loop layouts that use all 13 rooms with every door closed, found by search, then ranked for The Basement:
+// every room a breaker can spawn in is a hiding room or one door from one
+const PRESETS = [
+  ["4R+8R A", { w: 5, h: 7, g: [0,0,0,0,0,0,0,0,100,0,0,132,68,197,0,0,359,47,397,0,0,423,265,165,0,0,291,234,329,0,0,0,0,0,0] }],
+  ["4R+8R B", { w: 5, h: 7, g: [0,0,0,0,0,0,0,0,132,0,0,100,68,165,0,0,391,47,365,0,0,423,265,197,0,0,291,234,329,0,0,0,0,0,0] }],
+  ["6R+6R A", { w: 6, h: 6, g: [0,0,0,0,0,0,0,132,68,0,100,0,0,359,47,170,397,0,0,197,423,234,265,0,0,291,329,0,0,0,0,0,0,0,0,0] }],
+  ["6R+6R B", { w: 6, h: 6, g: [0,0,0,0,0,0,0,132,68,0,100,0,0,359,47,202,397,0,0,229,423,170,265,0,0,291,329,0,0,0,0,0,0,0,0,0] }],
+  ["4R+6R A", { w: 5, h: 7, g: [0,0,0,0,0,0,100,0,132,0,0,197,68,165,0,0,359,47,397,0,0,259,429,229,0,0,0,291,329,0,0,0,0,0,0] }],
+  ["4R+6R B", { w: 5, h: 7, g: [0,0,0,0,0,0,100,0,132,0,0,197,68,165,0,0,391,47,365,0,0,259,429,229,0,0,0,291,329,0,0,0,0,0,0] }],
+  ["6R+8R A", { w: 6, h: 6, g: [0,0,0,0,0,0,0,98,202,366,268,0,0,0,66,47,397,0,0,130,170,429,229,0,0,0,0,291,329,0,0,0,0,0,0,0] }],
+  ["6R+8R B", { w: 6, h: 6, g: [0,0,0,0,0,0,0,98,202,398,268,0,0,0,66,47,365,0,0,130,170,429,229,0,0,0,0,291,329,0,0,0,0,0,0,0] }],
+  // the 9 layouts from Lindternal's Steam guide "Optimal Cabin Layouts", read from its pictures, with hiding rooms placed best
+  ["Guide 4R+8R #1", { w: 4, h: 4, g: [0,262,202,300,0,165,68,229,0,391,47,329,130,363,427,104] }],
+  ["Guide 4R+8R #2", { w: 5, h: 4, g: [130,366,202,268,0,0,165,68,229,0,0,391,47,427,104,0,291,329,0,0] }],
+  ["Guide 4R+8R #3", { w: 4, h: 5, g: [0,68,0,0,262,47,136,0,391,363,202,300,423,170,234,329,97,0,0,0] }],
+  ["Guide 4R+8R #4", { w: 4, h: 5, g: [0,0,68,0,130,366,47,268,0,291,397,197,0,0,165,229,0,98,427,329] }],
+  ["Guide 6R+6R #1", { w: 5, h: 4, g: [130,268,68,0,0,0,359,47,300,0,0,197,165,229,0,0,323,395,427,104] }],
+  ["Guide 6R+6R #2", { w: 4, h: 5, g: [0,0,68,0,0,262,47,300,132,197,165,229,323,363,395,429,0,0,0,97] }],
+  ["Guide 6R+6R #3", { w: 4, h: 4, g: [0,0,68,0,262,202,47,300,359,170,397,229,129,98,427,329] }],
+  ["Guide 4R+6R #1", { w: 5, h: 4, g: [0,68,0,0,0,262,47,366,170,136,291,397,197,0,0,0,323,427,234,104] }],
+  ["Guide 4R+6R #2", { w: 4, h: 5, g: [100,0,0,0,197,0,68,0,165,262,47,136,359,395,429,0,291,234,329,0] }],
+];
+PRESETS.forEach(([name, p]) => {
+  const b = document.createElement("button");
+  const guide = name.startsWith("Guide ");
+  b.textContent = guide ? name.slice(6) : name;
+  p.g = toRooms(p.g);
+  b.onclick = () => { st = { w: p.w, h: p.h, g: [...p.g] }; $("gw").value = p.w; $("gh").value = p.h; render(); };
+  $(guide ? "guide-presets" : "presets").appendChild(b);
+});
+console.assert(PRESETS.every(([name, p]) => loops(p.g, p.w, p.h) === 2 && !badEnds(p.g, p.w, p.h).length && cellarOk(p.g, p.w, p.h)
+  && ROOMS.every((_, i) => p.g.filter(v => roomOf(v) === i + 1).length === 1) && hideSteps(p.g, p.w, p.h) <= (name.startsWith("Guide ") ? 2 : 1)), "presets");
+console.assert(hideSteps([DINING_V, 3 * 32 + W], 2, 1) === Infinity && hideSteps([4 * 32 + E, 3 * 32 + W], 2, 1) === 1, "hideSteps");
+// ---- draw mode: tap the card you drew, the grid shows where it keeps the most full-deck plans possible
+// every two-loop layout that uses all 13 rooms with all doors closed, from the same search as the presets (shape only)
+const LAYOUTS = [["4R+6R",5,5,"0.0.0.0.4.0.0.20.0.5.2.10.15.14.13.0.0.3.13.5.0.0.0.3.9"],["4R+6R",7,4,"0.0.20.0.0.0.0.2.10.15.14.14.10.8.0.0.3.13.5.0.0.0.0.0.3.9.0.0"],["4R+6R",5,5,"0.0.20.0.0.2.10.15.14.12.0.0.7.13.5.0.0.5.3.9.0.0.1.0.0"],["4R+6R",5,4,"0.0.20.0.0.2.10.15.14.12.2.10.11.13.5.0.0.0.3.9"],["4R+6R",5,6,"0.0.20.0.0.2.10.15.14.12.0.0.3.13.5.0.0.0.7.9.0.0.0.5.0.0.0.0.1.0"],["4R+6R",5,4,"0.0.20.0.0.2.10.15.14.12.0.0.3.13.5.0.2.10.11.9"],["4R+6R",7,4,"0.0.20.0.0.0.0.2.10.15.14.12.0.0.0.0.3.13.5.0.0.0.0.0.3.11.10.8"],["4R+6R",5,6,"0.0.20.0.0.2.10.15.14.12.0.0.3.13.5.0.0.0.3.13.0.0.0.0.5.0.0.0.0.1"],["4R+6R",6,4,"0.0.0.20.0.4.2.10.10.15.14.13.0.0.0.3.13.5.0.0.0.0.3.9"],["4R+6R",7,4,"0.0.0.20.0.0.0.2.10.10.15.14.14.8.0.0.0.3.13.5.0.0.0.0.0.3.9.0"],["4R+6R",6,4,"0.0.0.20.0.0.2.10.10.15.14.12.0.0.0.7.13.5.0.0.0.1.3.9"],["4R+6R",6,4,"0.0.0.20.0.0.2.10.10.15.14.12.0.0.2.11.13.5.0.0.0.0.3.9"],["4R+6R",6,5,"0.0.0.20.0.0.2.10.10.15.14.12.0.0.0.3.13.5.0.0.0.0.7.9.0.0.0.0.1.0"],["4R+6R",6,4,"0.0.0.20.0.0.2.10.10.15.14.12.0.0.0.3.13.5.0.0.0.2.11.9"],["4R+6R",7,4,"0.0.0.20.0.0.0.2.10.10.15.14.12.0.0.0.0.3.13.5.0.0.0.0.0.3.11.8"],["4R+6R",6,5,"0.0.0.20.0.0.2.10.10.15.14.12.0.0.0.3.13.5.0.0.0.0.3.13.0.0.0.0.0.1"],["4R+6R",3,6,"0.0.4.0.0.5.4.20.5.7.15.13.3.13.5.0.3.9"],["4R+6R",6,4,"4.20.0.0.0.0.7.15.14.10.10.8.3.13.5.0.0.0.0.3.9.0.0.0"],["4R+6R",3,6,"4.20.0.7.15.12.7.13.5.5.3.9.5.0.0.1.0.0"],["4R+6R",6,4,"0.0.0.4.20.0.0.0.0.7.15.12.2.10.10.11.13.5.0.0.0.0.3.9"],["4R+6R",3,7,"4.20.0.7.15.12.3.13.5.0.7.9.0.5.0.0.5.0.0.1.0"],["4R+6R",5,4,"0.0.4.20.0.0.0.7.15.12.0.0.3.13.5.2.10.10.11.9"],["4R+6R",6,4,"4.20.0.0.0.0.7.15.12.0.0.0.3.13.5.0.0.0.0.3.11.10.10.8"],["4R+6R",3,7,"4.20.0.7.15.12.3.13.5.0.3.13.0.0.5.0.0.5.0.0.1"],["4R+6R",6,4,"4.0.20.0.0.0.7.14.15.10.10.8.3.13.5.0.0.0.0.3.9.0.0.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.4.0.5.0.7.14.15.24.3.13.5.0.0.3.9.0"],["4R+6R",6,4,"0.0.0.4.0.0.0.0.0.7.14.12.2.10.10.15.13.5.0.0.0.17.3.9"],["4R+6R",4,6,"0.4.0.0.0.7.14.12.18.15.13.5.0.5.3.9.0.5.0.0.0.1.0.0"],["4R+6R",5,5,"0.0.4.0.0.0.0.7.14.12.0.0.3.13.5.2.10.10.15.9.0.0.0.17.0"],["4R+6R",3,7,"4.0.0.7.14.12.3.13.5.18.15.9.0.5.0.0.5.0.0.1.0"],["4R+6R",4,7,"4.0.0.0.7.14.12.0.3.13.5.0.0.3.15.24.0.0.5.0.0.0.5.0.0.0.1.0"],["4R+6R",6,5,"4.0.0.0.0.0.7.14.12.0.0.0.3.13.5.0.0.0.0.3.15.10.10.8.0.0.17.0.0.0"],["4R+6R",4,5,"0.4.0.4.0.5.0.5.18.15.14.13.0.3.13.5.0.0.3.9"],["4R+6R",6,5,"0.4.0.0.0.0.0.5.0.0.0.0.18.15.14.14.10.8.0.3.13.5.0.0.0.0.3.9.0.0"],["4R+6R",4,6,"0.4.0.0.0.5.0.0.18.15.14.12.0.7.13.5.0.5.3.9.0.1.0.0"],["4R+6R",5,5,"0.0.4.0.0.0.0.5.0.0.0.18.15.14.12.2.10.11.13.5.0.0.0.3.9"],["4R+6R",4,7,"0.4.0.0.0.5.0.0.18.15.14.12.0.3.13.5.0.0.7.9.0.0.5.0.0.0.1.0"],["4R+6R",4,5,"0.4.0.0.0.5.0.0.18.15.14.12.0.3.13.5.2.10.11.9"],["4R+6R",6,5,"0.4.0.0.0.0.0.5.0.0.0.0.18.15.14.12.0.0.0.3.13.5.0.0.0.0.3.11.10.8"],["4R+6R",4,7,"0.4.0.0.0.5.0.0.18.15.14.12.0.3.13.5.0.0.3.13.0.0.0.5.0.0.0.1"],["4R+6R",3,5,"4.0.4.5.20.5.7.15.13.3.13.5.0.3.9"],["4R+6R",5,5,"4.0.0.0.0.5.20.0.0.0.7.15.14.10.8.3.13.5.0.0.0.3.9.0.0"],["4R+6R",3,6,"4.0.0.5.20.0.7.15.12.7.13.5.5.3.9.1.0.0"],["4R+6R",5,5,"0.0.4.0.0.0.0.5.20.0.0.0.7.15.12.2.10.11.13.5.0.0.0.3.9"],["4R+6R",3,7,"4.0.0.5.20.0.7.15.12.3.13.5.0.7.9.0.5.0.0.1.0"],["4R+6R",4,5,"0.4.0.0.0.5.20.0.0.7.15.12.0.3.13.5.2.10.11.9"],["4R+6R",5,5,"4.0.0.0.0.5.20.0.0.0.7.15.12.0.0.3.13.5.0.0.0.3.11.10.8"],["4R+6R",3,7,"4.0.0.5.20.0.7.15.12.3.13.5.0.3.13.0.0.5.0.0.1"],["4R+6R",5,5,"4.0.0.0.0.5.0.20.0.0.7.14.15.10.8.3.13.5.0.0.0.3.9.0.0"],["4R+6R",4,5,"4.0.4.0.5.0.5.0.7.14.15.24.3.13.5.0.0.3.9.0"],["4R+6R",5,5,"0.0.4.0.0.0.0.5.0.0.0.0.7.14.12.2.10.15.13.5.0.0.17.3.9"],["4R+6R",4,6,"0.4.0.0.0.5.0.0.0.7.14.12.18.15.13.5.0.5.3.9.0.1.0.0"],["4R+6R",4,6,"0.4.0.0.0.5.0.0.0.7.14.12.0.3.13.5.2.10.15.9.0.0.17.0"],["4R+6R",3,7,"4.0.0.5.0.0.7.14.12.3.13.5.18.15.9.0.5.0.0.1.0"],["4R+6R",4,7,"4.0.0.0.5.0.0.0.7.14.12.0.3.13.5.0.0.3.15.24.0.0.5.0.0.0.1.0"],["4R+6R",5,6,"4.0.0.0.0.5.0.0.0.0.7.14.12.0.0.3.13.5.0.0.0.3.15.10.8.0.0.17.0.0"],["4R+6R",4,6,"0.4.0.0.0.5.0.0.0.5.0.4.18.15.14.13.0.3.13.5.0.0.3.9"],["4R+6R",5,6,"0.4.0.0.0.0.5.0.0.0.0.5.0.0.0.18.15.14.14.8.0.3.13.5.0.0.0.3.9.0"],["4R+6R",4,6,"0.4.0.0.0.5.0.0.0.5.0.0.18.15.14.12.0.7.13.5.0.1.3.9"],["4R+6R",4,6,"0.4.0.0.0.5.0.0.0.5.0.0.18.15.14.12.2.11.13.5.0.0.3.9"],["4R+6R",4,7,"0.4.0.0.0.5.0.0.0.5.0.0.18.15.14.12.0.3.13.5.0.0.7.9.0.0.1.0"],["4R+6R",4,6,"0.4.0.0.0.5.0.0.0.5.0.0.18.15.14.12.0.3.13.5.0.2.11.9"],["4R+6R",5,6,"0.4.0.0.0.0.5.0.0.0.0.5.0.0.0.18.15.14.12.0.0.3.13.5.0.0.0.3.11.8"],["4R+6R",4,7,"0.4.0.0.0.5.0.0.0.5.0.0.18.15.14.12.0.3.13.5.0.0.3.13.0.0.0.1"],["4R+6R",3,6,"4.0.0.5.0.0.5.20.4.7.15.13.3.13.5.0.3.9"],["4R+6R",4,6,"4.0.0.0.5.0.0.0.5.20.0.0.7.15.14.8.3.13.5.0.0.3.9.0"],["4R+6R",3,6,"4.0.0.5.0.0.5.20.0.7.15.12.7.13.5.1.3.9"],["4R+6R",4,6,"0.4.0.0.0.5.0.0.0.5.20.0.0.7.15.12.2.11.13.5.0.0.3.9"],["4R+6R",3,7,"4.0.0.5.0.0.5.20.0.7.15.12.3.13.5.0.7.9.0.1.0"],["4R+6R",3,6,"4.0.0.5.0.0.5.20.0.7.15.12.3.13.5.2.11.9"],["4R+6R",4,6,"4.0.0.0.5.0.0.0.5.20.0.0.7.15.12.0.3.13.5.0.0.3.11.8"],["4R+6R",3,7,"4.0.0.5.0.0.5.20.0.7.15.12.3.13.5.0.3.13.0.0.1"],["4R+6R",4,6,"0.0.0.4.0.0.0.5.0.0.20.5.2.14.15.13.0.3.13.5.0.0.3.9"],["4R+6R",7,4,"0.0.20.0.0.0.0.2.14.15.14.10.10.8.0.3.13.5.0.0.0.0.0.3.9.0.0.0"],["4R+6R",4,6,"0.0.20.0.2.14.15.12.0.7.13.5.0.5.3.9.0.5.0.0.0.1.0.0"],["4R+6R",6,4,"0.0.0.0.20.0.0.0.2.14.15.12.2.10.10.11.13.5.0.0.0.0.3.9"],["4R+6R",4,7,"0.0.20.0.2.14.15.12.0.3.13.5.0.0.7.9.0.0.5.0.0.0.5.0.0.0.1.0"],["4R+6R",5,4,"0.0.0.20.0.0.2.14.15.12.0.0.3.13.5.2.10.10.11.9"],["4R+6R",7,4,"0.0.20.0.0.0.0.2.14.15.12.0.0.0.0.3.13.5.0.0.0.0.0.3.11.10.10.8"],["4R+6R",4,7,"0.0.20.0.2.14.15.12.0.3.13.5.0.0.3.13.0.0.0.5.0.0.0.5.0.0.0.1"],["4R+6R",7,4,"0.0.0.20.0.0.0.2.14.14.15.10.10.8.0.3.13.5.0.0.0.0.0.3.9.0.0.0"],["4R+6R",5,6,"0.0.0.4.0.0.0.0.5.0.0.0.0.5.0.2.14.14.15.24.0.3.13.5.0.0.0.3.9.0"],["4R+6R",6,3,"0.0.2.14.14.12.2.10.10.15.13.5.0.0.0.17.3.9"],["4R+6R",4,5,"2.14.14.12.18.15.13.5.0.5.3.9.0.5.0.0.0.1.0.0"],["4R+6R",5,4,"0.2.14.14.12.0.0.3.13.5.2.10.10.15.9.0.0.0.17.0"],["4R+6R",4,6,"2.14.14.12.0.3.13.5.0.18.15.9.0.0.5.0.0.0.5.0.0.0.1.0"],["4R+6R",5,6,"2.14.14.12.0.0.3.13.5.0.0.0.3.15.24.0.0.0.5.0.0.0.0.5.0.0.0.0.1.0"],["4R+6R",7,4,"2.14.14.12.0.0.0.0.3.13.5.0.0.0.0.0.3.15.10.10.8.0.0.0.17.0.0.0"],["4R+6R",5,5,"0.0.0.0.4.0.0.0.20.5.2.10.14.15.13.0.0.3.13.5.0.0.0.3.9"],["4R+6R",7,4,"0.0.0.20.0.0.0.2.10.14.15.14.10.8.0.0.3.13.5.0.0.0.0.0.3.9.0.0"],["4R+6R",5,5,"0.0.0.20.0.2.10.14.15.12.0.0.7.13.5.0.0.5.3.9.0.0.1.0.0"],["4R+6R",5,4,"0.0.0.20.0.2.10.14.15.12.2.10.11.13.5.0.0.0.3.9"],["4R+6R",5,6,"0.0.0.20.0.2.10.14.15.12.0.0.3.13.5.0.0.0.7.9.0.0.0.5.0.0.0.0.1.0"],["4R+6R",5,4,"0.0.0.20.0.2.10.14.15.12.0.0.3.13.5.0.2.10.11.9"],["4R+6R",7,4,"0.0.0.20.0.0.0.2.10.14.15.12.0.0.0.0.3.13.5.0.0.0.0.0.3.11.10.8"],["4R+6R",5,6,"0.0.0.20.0.2.10.14.15.12.0.0.3.13.5.0.0.0.3.13.0.0.0.0.5.0.0.0.0.1"],["4R+6R",7,4,"0.0.0.0.20.0.0.2.10.14.14.15.10.8.0.0.3.13.5.0.0.0.0.0.3.9.0.0"],["4R+6R",6,5,"0.0.0.0.4.0.0.0.0.0.5.0.2.10.14.14.15.24.0.0.3.13.5.0.0.0.0.3.9.0"],["4R+6R",5,3,"2.10.14.14.12.2.10.15.13.5.0.0.17.3.9"],["4R+6R",5,4,"2.10.14.14.12.0.18.15.13.5.0.0.5.3.9.0.0.1.0.0"],["4R+6R",5,4,"2.10.14.14.12.0.0.3.13.5.0.2.10.15.9.0.0.0.17.0"],["4R+6R",5,5,"2.10.14.14.12.0.0.3.13.5.0.0.18.15.9.0.0.0.5.0.0.0.0.1.0"],["4R+6R",6,5,"2.10.14.14.12.0.0.0.3.13.5.0.0.0.0.3.15.24.0.0.0.0.5.0.0.0.0.0.1.0"],["4R+6R",7,4,"2.10.14.14.12.0.0.0.0.3.13.5.0.0.0.0.0.3.15.10.8.0.0.0.0.17.0.0"],["4R+6R",6,4,"0.0.0.0.20.4.2.10.10.14.15.13.0.0.0.3.13.5.0.0.0.0.3.9"],["4R+6R",7,4,"0.0.0.0.20.0.0.2.10.10.14.15.14.8.0.0.0.3.13.5.0.0.0.0.0.3.9.0"],["4R+6R",6,4,"0.0.0.0.20.0.2.10.10.14.15.12.0.0.0.7.13.5.0.0.0.1.3.9"],["4R+6R",6,4,"0.0.0.0.20.0.2.10.10.14.15.12.0.0.2.11.13.5.0.0.0.0.3.9"],["4R+6R",6,5,"0.0.0.0.20.0.2.10.10.14.15.12.0.0.0.3.13.5.0.0.0.0.7.9.0.0.0.0.1.0"],["4R+6R",6,4,"0.0.0.0.20.0.2.10.10.14.15.12.0.0.0.3.13.5.0.0.0.2.11.9"],["4R+6R",7,4,"0.0.0.0.20.0.0.2.10.10.14.15.12.0.0.0.0.3.13.5.0.0.0.0.0.3.11.8"],["4R+6R",6,5,"0.0.0.0.20.0.2.10.10.14.15.12.0.0.0.3.13.5.0.0.0.0.3.13.0.0.0.0.0.1"],["4R+6R",3,6,"0.20.4.6.15.13.7.13.5.5.3.9.5.0.0.1.0.0"],["4R+6R",6,4,"0.0.0.0.20.4.0.0.0.6.15.13.2.10.10.11.13.5.0.0.0.0.3.9"],["4R+6R",3,7,"0.20.4.6.15.13.3.13.5.0.7.9.0.5.0.0.5.0.0.1.0"],["4R+6R",5,4,"0.0.0.20.4.0.0.6.15.13.0.0.3.13.5.2.10.10.11.9"],["4R+6R",6,4,"0.20.4.0.0.0.6.15.13.0.0.0.3.13.5.0.0.0.0.3.11.10.10.8"],["4R+6R",3,7,"0.20.4.6.15.13.3.13.5.0.3.13.0.0.5.0.0.5.0.0.1"],["4R+6R",3,6,"0.0.4.0.20.5.6.15.13.7.13.5.5.3.9.1.0.0"],["4R+6R",5,5,"0.0.0.0.4.0.0.0.20.5.0.0.6.15.13.2.10.11.13.5.0.0.0.3.9"],["4R+6R",3,7,"0.0.4.0.20.5.6.15.13.3.13.5.0.7.9.0.5.0.0.1.0"],["4R+6R",4,5,"0.0.0.4.0.0.20.5.0.6.15.13.0.3.13.5.2.10.11.9"],["4R+6R",5,5,"0.0.4.0.0.0.20.5.0.0.6.15.13.0.0.3.13.5.0.0.0.3.11.10.8"],["4R+6R",3,7,"0.0.4.0.20.5.6.15.13.3.13.5.0.3.13.0.0.5.0.0.1"],["4R+6R",3,6,"0.0.4.0.0.5.0.20.5.6.15.13.7.13.5.1.3.9"],["4R+6R",4,6,"0.0.0.4.0.0.0.5.0.0.20.5.0.6.15.13.2.11.13.5.0.0.3.9"],["4R+6R",3,7,"0.0.4.0.0.5.0.20.5.6.15.13.3.13.5.0.7.9.0.1.0"],["4R+6R",3,6,"0.0.4.0.0.5.0.20.5.6.15.13.3.13.5.2.11.9"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.20.5.0.6.15.13.0.3.13.5.0.0.3.11.8"],["4R+6R",3,7,"0.0.4.0.0.5.0.20.5.6.15.13.3.13.5.0.3.13.0.0.1"],["4R+6R",4,6,"0.20.0.0.6.15.14.8.7.13.5.0.5.3.9.0.5.0.0.0.1.0.0.0"],["4R+6R",7,4,"0.0.0.0.20.0.0.0.0.0.6.15.14.8.2.10.10.11.13.5.0.0.0.0.0.3.9.0"],["4R+6R",4,7,"0.20.0.0.6.15.14.8.3.13.5.0.0.7.9.0.0.5.0.0.0.5.0.0.0.1.0.0"],["4R+6R",6,4,"0.0.0.20.0.0.0.0.6.15.14.8.0.0.3.13.5.0.2.10.10.11.9.0"],["4R+6R",6,4,"0.20.0.0.0.0.6.15.14.8.0.0.3.13.5.0.0.0.0.3.11.10.10.8"],["4R+6R",4,7,"0.20.0.0.6.15.14.8.3.13.5.0.0.3.13.0.0.0.5.0.0.0.5.0.0.0.1.0"],["4R+6R",5,5,"0.20.0.0.0.6.15.14.10.8.7.13.5.0.0.5.3.9.0.0.1.0.0.0.0"],["4R+6R",7,4,"0.0.0.20.0.0.0.0.0.6.15.14.10.8.2.10.11.13.5.0.0.0.0.0.3.9.0.0"],["4R+6R",5,6,"0.20.0.0.0.6.15.14.10.8.3.13.5.0.0.0.7.9.0.0.0.5.0.0.0.0.1.0.0.0"],["4R+6R",6,4,"0.0.20.0.0.0.0.6.15.14.10.8.0.3.13.5.0.0.2.10.11.9.0.0"],["4R+6R",5,4,"0.20.0.0.0.6.15.14.10.8.3.13.5.0.0.0.3.11.10.8"],["4R+6R",5,6,"0.20.0.0.0.6.15.14.10.8.3.13.5.0.0.0.3.13.0.0.0.0.5.0.0.0.0.1.0.0"],["4R+6R",6,4,"0.20.0.0.0.0.6.15.14.10.10.8.7.13.5.0.0.0.1.3.9.0.0.0"],["4R+6R",7,4,"0.0.20.0.0.0.0.0.6.15.14.10.10.8.2.11.13.5.0.0.0.0.0.3.9.0.0.0"],["4R+6R",6,5,"0.20.0.0.0.0.6.15.14.10.10.8.3.13.5.0.0.0.0.7.9.0.0.0.0.1.0.0.0.0"],["4R+6R",6,4,"0.20.0.0.0.0.6.15.14.10.10.8.3.13.5.0.0.0.2.11.9.0.0.0"],["4R+6R",6,4,"0.20.0.0.0.0.6.15.14.10.10.8.3.13.5.0.0.0.0.3.11.8.0.0"],["4R+6R",6,5,"0.20.0.0.0.0.6.15.14.10.10.8.3.13.5.0.0.0.0.3.13.0.0.0.0.0.1.0.0.0"],["4R+6R",3,7,"0.20.0.6.15.12.7.13.5.1.7.9.0.5.0.0.5.0.0.1.0"],["4R+6R",6,4,"0.20.0.0.0.0.6.15.12.0.0.0.7.13.5.0.0.0.1.3.11.10.10.8"],["4R+6R",3,7,"0.20.0.6.15.12.7.13.5.1.3.13.0.0.5.0.0.5.0.0.1"],["4R+6R",3,6,"0.20.0.6.15.12.7.13.5.5.7.9.1.5.0.0.1.0"],["4R+6R",5,5,"0.20.0.0.0.6.15.12.0.0.7.13.5.0.0.5.3.11.10.8.1.0.0.0.0"],["4R+6R",3,6,"0.20.0.6.15.12.7.13.5.5.3.13.1.0.5.0.0.1"],["4R+6R",3,6,"0.20.0.6.15.12.7.13.5.5.7.9.5.1.0.1.0.0"],["4R+6R",4,6,"0.20.0.0.6.15.12.0.7.13.5.0.5.3.11.8.5.0.0.0.1.0.0.0"],["4R+6R",3,6,"0.20.0.6.15.12.7.13.5.5.3.13.5.0.1.1.0.0"],["4R+6R",4,7,"0.0.20.0.0.6.15.12.2.11.13.5.0.0.7.9.0.0.5.0.0.0.5.0.0.0.1.0"],["4R+6R",5,4,"0.0.0.20.0.0.0.6.15.12.0.2.11.13.5.2.10.10.11.9"],["4R+6R",7,4,"0.0.20.0.0.0.0.0.6.15.12.0.0.0.2.11.13.5.0.0.0.0.0.3.11.10.10.8"],["4R+6R",4,7,"0.0.20.0.0.6.15.12.2.11.13.5.0.0.3.13.0.0.0.5.0.0.0.5.0.0.0.1"],["4R+6R",5,6,"0.0.0.20.0.0.0.6.15.12.2.10.11.13.5.0.0.0.7.9.0.0.0.5.0.0.0.0.1.0"],["4R+6R",5,4,"0.0.0.20.0.0.0.6.15.12.2.10.11.13.5.0.2.10.11.9"],["4R+6R",7,4,"0.0.0.20.0.0.0.0.0.6.15.12.0.0.2.10.11.13.5.0.0.0.0.0.3.11.10.8"],["4R+6R",5,6,"0.0.0.20.0.0.0.6.15.12.2.10.11.13.5.0.0.0.3.13.0.0.0.0.5.0.0.0.0.1"],["4R+6R",6,5,"0.0.0.0.20.0.0.0.0.6.15.12.2.10.10.11.13.5.0.0.0.0.7.9.0.0.0.0.1.0"],["4R+6R",6,4,"0.0.0.0.20.0.0.0.0.6.15.12.2.10.10.11.13.5.0.0.0.2.11.9"],["4R+6R",7,4,"0.0.0.0.20.0.0.0.0.0.6.15.12.0.2.10.10.11.13.5.0.0.0.0.0.3.11.8"],["4R+6R",6,5,"0.0.0.0.20.0.0.0.0.6.15.12.2.10.10.11.13.5.0.0.0.0.3.13.0.0.0.0.0.1"],["4R+6R",6,5,"0.20.0.0.0.0.6.15.12.0.0.0.3.13.5.0.0.0.0.7.11.10.10.8.0.1.0.0.0.0"],["4R+6R",3,7,"0.20.0.6.15.12.3.13.5.0.7.13.0.1.5.0.0.5.0.0.1"],["4R+6R",5,6,"0.20.0.0.0.6.15.12.0.0.3.13.5.0.0.0.7.11.10.8.0.5.0.0.0.0.1.0.0.0"],["4R+6R",3,6,"0.20.0.6.15.12.3.13.5.0.7.13.0.5.5.0.1.1"],["4R+6R",4,7,"0.20.0.0.6.15.12.0.3.13.5.0.0.7.11.8.0.5.0.0.0.5.0.0.0.1.0.0"],["4R+6R",3,7,"0.20.0.6.15.12.3.13.5.0.7.13.0.5.1.0.5.0.0.1.0"],["4R+6R",6,4,"0.20.0.0.0.0.6.15.12.0.0.0.3.13.5.0.0.0.2.11.11.10.10.8"],["4R+6R",3,7,"0.20.0.6.15.12.3.13.5.2.11.13.0.0.5.0.0.5.0.0.1"],["4R+6R",6,4,"0.0.20.0.0.0.0.6.15.12.0.0.0.3.13.5.0.0.2.10.11.11.10.8"],["4R+6R",4,6,"0.0.20.0.0.6.15.12.0.3.13.5.2.10.11.13.0.0.0.5.0.0.0.1"],["4R+6R",6,4,"0.0.0.20.0.0.0.0.6.15.12.0.0.0.3.13.5.0.2.10.10.11.11.8"],["4R+6R",5,5,"0.0.0.20.0.0.0.6.15.12.0.0.3.13.5.2.10.10.11.13.0.0.0.0.1"],["4R+6R",5,5,"0.0.20.0.0.6.14.15.10.8.7.13.5.0.0.5.3.9.0.0.1.0.0.0.0"],["4R+6R",7,4,"0.0.0.0.20.0.0.0.0.6.14.15.10.8.2.10.11.13.5.0.0.0.0.0.3.9.0.0"],["4R+6R",5,6,"0.0.20.0.0.6.14.15.10.8.3.13.5.0.0.0.7.9.0.0.0.5.0.0.0.0.1.0.0.0"],["4R+6R",6,4,"0.0.0.20.0.0.0.6.14.15.10.8.0.3.13.5.0.0.2.10.11.9.0.0"],["4R+6R",5,4,"0.0.20.0.0.6.14.15.10.8.3.13.5.0.0.0.3.11.10.8"],["4R+6R",5,6,"0.0.20.0.0.6.14.15.10.8.3.13.5.0.0.0.3.13.0.0.0.0.5.0.0.0.0.1.0.0"],["4R+6R",6,4,"0.0.20.0.0.0.6.14.15.10.10.8.7.13.5.0.0.0.1.3.9.0.0.0"],["4R+6R",7,4,"0.0.0.20.0.0.0.0.6.14.15.10.10.8.2.11.13.5.0.0.0.0.0.3.9.0.0.0"],["4R+6R",6,5,"0.0.20.0.0.0.6.14.15.10.10.8.3.13.5.0.0.0.0.7.9.0.0.0.0.1.0.0.0.0"],["4R+6R",6,4,"0.0.20.0.0.0.6.14.15.10.10.8.3.13.5.0.0.0.2.11.9.0.0.0"],["4R+6R",6,4,"0.0.20.0.0.0.6.14.15.10.10.8.3.13.5.0.0.0.0.3.11.8.0.0"],["4R+6R",6,5,"0.0.20.0.0.0.6.14.15.10.10.8.3.13.5.0.0.0.0.3.13.0.0.0.0.0.1.0.0.0"],["4R+6R",6,4,"0.0.0.0.0.4.0.0.0.6.14.13.2.10.10.15.13.5.0.0.0.17.3.9"],["4R+6R",4,6,"0.0.0.4.0.6.14.13.18.15.13.5.0.5.3.9.0.5.0.0.0.1.0.0"],["4R+6R",5,5,"0.0.0.0.4.0.0.6.14.13.0.0.3.13.5.2.10.10.15.9.0.0.0.17.0"],["4R+6R",3,7,"0.0.4.6.14.13.3.13.5.18.15.9.0.5.0.0.5.0.0.1.0"],["4R+6R",4,7,"0.0.4.0.6.14.13.0.3.13.5.0.0.3.15.24.0.0.5.0.0.0.5.0.0.0.1.0"],["4R+6R",6,5,"0.0.4.0.0.0.6.14.13.0.0.0.3.13.5.0.0.0.0.3.15.10.10.8.0.0.17.0.0.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.6.14.15.24.7.13.5.0.5.3.9.0.1.0.0.0"],["4R+6R",6,5,"0.0.0.0.4.0.0.0.0.0.5.0.0.0.6.14.15.24.2.10.11.13.5.0.0.0.0.3.9.0"],["4R+6R",4,7,"0.0.4.0.0.0.5.0.6.14.15.24.3.13.5.0.0.7.9.0.0.5.0.0.0.1.0.0"],["4R+6R",5,5,"0.0.0.4.0.0.0.0.5.0.0.6.14.15.24.0.3.13.5.0.2.10.11.9.0"],["4R+6R",5,5,"0.0.4.0.0.0.0.5.0.0.6.14.15.24.0.3.13.5.0.0.0.3.11.10.8"],["4R+6R",4,7,"0.0.4.0.0.0.5.0.6.14.15.24.3.13.5.0.0.3.13.0.0.0.5.0.0.0.1.0"],["4R+6R",5,5,"0.0.0.0.4.0.0.0.0.5.0.0.6.14.13.2.10.15.13.5.0.0.17.3.9"],["4R+6R",4,6,"0.0.0.4.0.0.0.5.0.6.14.13.18.15.13.5.0.5.3.9.0.1.0.0"],["4R+6R",4,6,"0.0.0.4.0.0.0.5.0.6.14.13.0.3.13.5.2.10.15.9.0.0.17.0"],["4R+6R",3,7,"0.0.4.0.0.5.6.14.13.3.13.5.18.15.9.0.5.0.0.1.0"],["4R+6R",4,7,"0.0.4.0.0.0.5.0.6.14.13.0.3.13.5.0.0.3.15.24.0.0.5.0.0.0.1.0"],["4R+6R",5,6,"0.0.4.0.0.0.0.5.0.0.6.14.13.0.0.3.13.5.0.0.0.3.15.10.8.0.0.17.0.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.6.14.15.24.7.13.5.0.1.3.9.0"],["4R+6R",5,6,"0.0.0.4.0.0.0.0.5.0.0.0.0.5.0.0.6.14.15.24.2.11.13.5.0.0.0.3.9.0"],["4R+6R",4,7,"0.0.4.0.0.0.5.0.0.0.5.0.6.14.15.24.3.13.5.0.0.7.9.0.0.1.0.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.6.14.15.24.3.13.5.0.2.11.9.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.6.14.15.24.3.13.5.0.0.3.11.8"],["4R+6R",4,7,"0.0.4.0.0.0.5.0.0.0.5.0.6.14.15.24.3.13.5.0.0.3.13.0.0.0.1.0"],["4R+6R",7,3,"0.0.0.6.14.14.8.2.10.10.15.13.5.0.0.0.0.17.3.9.0"],["4R+6R",5,5,"0.6.14.14.8.18.15.13.5.0.0.5.3.9.0.0.5.0.0.0.0.1.0.0.0"],["4R+6R",6,4,"0.0.6.14.14.8.0.0.3.13.5.0.2.10.10.15.9.0.0.0.0.17.0.0"],["4R+6R",4,6,"6.14.14.8.3.13.5.0.18.15.9.0.0.5.0.0.0.5.0.0.0.1.0.0"],["4R+6R",4,6,"6.14.14.8.3.13.5.0.0.3.15.24.0.0.5.0.0.0.5.0.0.0.1.0"],["4R+6R",6,4,"6.14.14.8.0.0.3.13.5.0.0.0.0.3.15.10.10.8.0.0.17.0.0.0"],["4R+6R",7,3,"0.0.6.14.14.10.8.2.10.15.13.5.0.0.0.0.17.3.9.0.0"],["4R+6R",6,4,"0.6.14.14.10.8.18.15.13.5.0.0.0.5.3.9.0.0.0.1.0.0.0.0"],["4R+6R",6,4,"0.6.14.14.10.8.0.3.13.5.0.0.2.10.15.9.0.0.0.0.17.0.0.0"],["4R+6R",5,5,"6.14.14.10.8.3.13.5.0.0.18.15.9.0.0.0.5.0.0.0.0.1.0.0.0"],["4R+6R",5,5,"6.14.14.10.8.3.13.5.0.0.0.3.15.24.0.0.0.5.0.0.0.0.1.0.0"],["4R+6R",5,4,"6.14.14.10.8.3.13.5.0.0.0.3.15.10.8.0.0.17.0.0"],["4R+6R",5,5,"0.0.6.14.12.2.10.15.13.5.0.0.17.7.9.0.0.0.5.0.0.0.0.1.0"],["4R+6R",7,3,"0.0.6.14.12.0.0.2.10.15.13.5.0.0.0.0.17.3.11.10.8"],["4R+6R",5,5,"0.0.6.14.12.2.10.15.13.5.0.0.17.3.13.0.0.0.0.5.0.0.0.0.1"],["4R+6R",6,4,"0.0.0.6.14.12.2.10.10.15.13.5.0.0.0.17.7.9.0.0.0.0.1.0"],["4R+6R",7,3,"0.0.0.6.14.12.0.2.10.10.15.13.5.0.0.0.0.17.3.11.8"],["4R+6R",6,4,"0.0.0.6.14.12.2.10.10.15.13.5.0.0.0.17.3.13.0.0.0.0.0.1"],["4R+6R",4,6,"6.14.12.0.7.13.5.0.1.3.15.24.0.0.5.0.0.0.5.0.0.0.1.0"],["4R+6R",6,4,"6.14.12.0.0.0.7.13.5.0.0.0.1.3.15.10.10.8.0.0.17.0.0.0"],["4R+6R",4,5,"0.6.14.12.18.15.13.5.0.5.7.9.0.1.5.0.0.0.1.0"],["4R+6R",6,4,"0.6.14.12.0.0.18.15.13.5.0.0.0.5.3.11.10.8.0.1.0.0.0.0"],["4R+6R",4,5,"0.6.14.12.18.15.13.5.0.5.3.13.0.1.0.5.0.0.0.1"],["4R+6R",4,5,"6.14.12.0.7.13.5.0.5.3.15.24.1.0.5.0.0.0.1.0"],["4R+6R",5,4,"6.14.12.0.0.7.13.5.0.0.5.3.15.10.8.1.0.17.0.0"],["4R+6R",4,5,"0.6.14.12.18.15.13.5.0.5.7.9.0.5.1.0.0.1.0.0"],["4R+6R",5,5,"0.6.14.12.0.18.15.13.5.0.0.5.3.11.8.0.5.0.0.0.0.1.0.0.0"],["4R+6R",4,5,"0.6.14.12.18.15.13.5.0.5.3.13.0.5.0.1.0.1.0.0"],["4R+6R",5,4,"0.0.6.14.12.0.2.11.13.5.2.10.10.15.9.0.0.0.17.0"],["4R+6R",4,6,"0.6.14.12.2.11.13.5.0.18.15.9.0.0.5.0.0.0.5.0.0.0.1.0"],["4R+6R",5,6,"0.6.14.12.0.2.11.13.5.0.0.0.3.15.24.0.0.0.5.0.0.0.0.5.0.0.0.0.1.0"],["4R+6R",7,4,"0.6.14.12.0.0.0.2.11.13.5.0.0.0.0.0.3.15.10.10.8.0.0.0.17.0.0.0"],["4R+6R",5,4,"0.0.6.14.12.2.10.11.13.5.0.2.10.15.9.0.0.0.17.0"],["4R+6R",5,5,"0.0.6.14.12.2.10.11.13.5.0.0.18.15.9.0.0.0.5.0.0.0.0.1.0"],["4R+6R",6,5,"0.0.6.14.12.0.2.10.11.13.5.0.0.0.0.3.15.24.0.0.0.0.5.0.0.0.0.0.1.0"],["4R+6R",7,4,"0.0.6.14.12.0.0.2.10.11.13.5.0.0.0.0.0.3.15.10.8.0.0.0.0.17.0.0"],["4R+6R",6,4,"0.6.14.12.0.0.0.3.13.5.0.0.2.10.15.11.10.8.0.0.17.0.0.0"],["4R+6R",4,5,"0.6.14.12.0.3.13.5.2.10.15.13.0.0.17.5.0.0.0.1"],["4R+6R",6,4,"0.0.6.14.12.0.0.0.3.13.5.0.2.10.10.15.11.8.0.0.0.17.0.0"],["4R+6R",5,4,"0.0.6.14.12.0.0.3.13.5.2.10.10.15.13.0.0.0.17.1"],["4R+6R",4,6,"6.14.12.0.3.13.5.0.0.7.15.24.0.1.5.0.0.0.5.0.0.0.1.0"],["4R+6R",6,4,"6.14.12.0.0.0.3.13.5.0.0.0.0.7.15.10.10.8.0.1.17.0.0.0"],["4R+6R",5,5,"6.14.12.0.0.3.13.5.0.0.18.15.11.10.8.0.5.0.0.0.0.1.0.0.0"],["4R+6R",3,5,"6.14.12.3.13.5.18.15.13.0.5.5.0.1.1"],["4R+6R",4,5,"6.14.12.0.3.13.5.0.0.7.15.24.0.5.5.0.0.1.1.0"],["4R+6R",5,5,"6.14.12.0.0.3.13.5.0.0.0.7.15.10.8.0.5.17.0.0.0.1.0.0.0"],["4R+6R",4,6,"6.14.12.0.3.13.5.0.18.15.11.8.0.5.0.0.0.5.0.0.0.1.0.0"],["4R+6R",3,6,"6.14.12.3.13.5.18.15.13.0.5.1.0.5.0.0.1.0"],["4R+6R",4,6,"6.14.12.0.3.13.5.0.2.11.15.24.0.0.5.0.0.0.5.0.0.0.1.0"],["4R+6R",6,4,"6.14.12.0.0.0.3.13.5.0.0.0.2.11.15.10.10.8.0.0.17.0.0.0"],["4R+6R",5,5,"0.6.14.12.0.0.3.13.5.0.2.10.11.15.24.0.0.0.5.0.0.0.0.1.0"],["4R+6R",6,4,"0.6.14.12.0.0.0.3.13.5.0.0.2.10.11.15.10.8.0.0.0.17.0.0"],["6R+8R",4,5,"0.0.20.0.2.10.15.12.0.0.7.13.2.10.13.5.0.0.3.9"],["6R+8R",6,5,"0.0.20.0.0.0.2.10.15.12.0.0.0.0.7.13.0.0.0.0.5.7.10.8.0.0.3.9.0.0"],["6R+8R",5,5,"0.0.0.20.0.2.10.10.15.12.0.0.0.7.13.0.0.2.13.5.0.0.0.3.9"],["6R+8R",6,5,"0.0.0.20.0.0.2.10.10.15.12.0.0.0.0.7.13.0.0.0.0.5.7.8.0.0.0.3.9.0"],["6R+8R",5,5,"0.0.0.4.0.0.0.0.7.12.0.0.18.15.13.2.10.10.13.5.0.0.0.3.9"],["6R+8R",6,5,"0.4.0.0.0.0.0.7.12.0.0.0.18.15.13.0.0.0.0.5.7.10.10.8.0.3.9.0.0.0"],["6R+8R",6,5,"0.0.0.4.0.0.0.0.0.7.12.0.0.0.0.7.15.24.2.10.10.13.5.0.0.0.0.3.9.0"],["6R+8R",5,5,"4.0.0.0.0.7.12.0.0.0.7.15.24.0.0.5.7.10.10.8.3.9.0.0.0"],["6R+8R",4,6,"0.0.4.0.0.0.5.0.0.18.15.12.0.0.7.13.2.10.13.5.0.0.3.9"],["6R+8R",5,6,"0.4.0.0.0.0.5.0.0.0.18.15.12.0.0.0.7.13.0.0.0.5.7.10.8.0.3.9.0.0"],["6R+8R",4,6,"0.0.4.0.0.0.5.0.0.0.7.12.0.18.15.13.2.10.13.5.0.0.3.9"],["6R+8R",5,6,"0.4.0.0.0.0.5.0.0.0.0.7.12.0.0.18.15.13.0.0.0.5.7.10.8.0.3.9.0.0"],["6R+8R",5,6,"0.0.4.0.0.0.0.5.0.0.0.0.7.12.0.0.0.7.15.24.2.10.13.5.0.0.0.3.9.0"],["6R+8R",4,6,"4.0.0.0.5.0.0.0.7.12.0.0.7.15.24.0.5.7.10.8.3.9.0.0"],["6R+8R",3,7,"0.4.0.0.5.0.0.5.0.18.15.12.0.7.13.2.13.5.0.3.9"],["6R+8R",4,7,"0.4.0.0.0.5.0.0.0.5.0.0.18.15.12.0.0.7.13.0.0.5.7.8.0.3.9.0"],["6R+8R",3,7,"0.4.0.0.5.0.0.5.0.0.7.12.18.15.13.2.13.5.0.3.9"],["6R+8R",4,7,"0.4.0.0.0.5.0.0.0.5.0.0.0.7.12.0.18.15.13.0.0.5.7.8.0.3.9.0"],["6R+8R",4,7,"0.4.0.0.0.5.0.0.0.5.0.0.0.7.12.0.0.7.15.24.2.13.5.0.0.3.9.0"],["6R+8R",3,7,"4.0.0.5.0.0.5.0.0.7.12.0.7.15.24.5.7.8.3.9.0"],["6R+8R",5,4,"0.0.2.14.12.0.0.18.15.13.2.10.10.13.5.0.0.0.3.9"],["6R+8R",6,4,"2.14.12.0.0.0.18.15.13.0.0.0.0.5.7.10.10.8.0.3.9.0.0.0"],["6R+8R",6,4,"0.0.2.14.12.0.0.0.0.7.15.24.2.10.10.13.5.0.0.0.0.3.9.0"],["6R+8R",6,4,"2.14.12.0.0.0.0.7.15.24.0.0.0.5.7.10.10.8.0.3.9.0.0.0"],["6R+8R",4,4,"2.10.14.12.0.18.15.13.2.10.13.5.0.0.3.9"],["6R+8R",6,4,"2.10.14.12.0.0.0.18.15.13.0.0.0.0.5.7.10.8.0.0.3.9.0.0"],["6R+8R",5,4,"2.10.14.12.0.0.0.7.15.24.2.10.13.5.0.0.0.3.9.0"],["6R+8R",6,4,"2.10.14.12.0.0.0.0.7.15.24.0.0.0.5.7.10.8.0.0.3.9.0.0"],["6R+8R",5,4,"2.10.10.14.12.0.0.18.15.13.0.0.2.13.5.0.0.0.3.9"],["6R+8R",6,4,"2.10.10.14.12.0.0.0.18.15.13.0.0.0.0.5.7.8.0.0.0.3.9.0"],["6R+8R",6,4,"2.10.10.14.12.0.0.0.0.7.15.24.0.0.2.13.5.0.0.0.0.3.9.0"],["6R+8R",6,4,"2.10.10.14.12.0.0.0.0.7.15.24.0.0.0.5.7.8.0.0.0.3.9.0"],["6R+8R",4,7,"0.0.4.0.0.0.5.0.0.0.5.0.0.6.15.24.0.7.13.0.2.13.5.0.0.3.9.0"],["6R+8R",3,7,"0.4.0.0.5.0.0.5.0.6.15.24.7.13.0.5.7.8.3.9.0"],["6R+8R",3,7,"0.0.4.0.0.5.0.0.5.0.6.13.18.15.13.2.13.5.0.3.9"],["6R+8R",4,7,"0.0.4.0.0.0.5.0.0.0.5.0.0.6.13.0.18.15.13.0.0.5.7.8.0.3.9.0"],["6R+8R",4,7,"0.0.4.0.0.0.5.0.0.0.5.0.0.6.13.0.0.7.15.24.2.13.5.0.0.3.9.0"],["6R+8R",3,7,"0.4.0.0.5.0.0.5.0.6.13.0.7.15.24.5.7.8.3.9.0"],["6R+8R",3,7,"0.6.12.18.15.13.2.13.5.0.7.9.0.5.0.0.5.0.0.1.0"],["6R+8R",5,4,"0.0.0.6.12.0.0.18.15.13.0.0.2.13.5.2.10.10.11.9"],["6R+8R",6,4,"0.6.12.0.0.0.18.15.13.0.0.0.2.13.5.0.0.0.0.3.11.10.10.8"],["6R+8R",3,7,"0.6.12.18.15.13.2.13.5.0.3.13.0.0.5.0.0.5.0.0.1"],["6R+8R",4,6,"0.0.6.12.0.18.15.13.2.10.13.5.0.0.7.9.0.0.5.0.0.0.1.0"],["6R+8R",4,4,"0.0.6.12.0.18.15.13.2.10.13.5.2.10.11.9"],["6R+8R",6,4,"0.0.6.12.0.0.0.18.15.13.0.0.2.10.13.5.0.0.0.0.3.11.10.8"],["6R+8R",4,6,"0.0.6.12.0.18.15.13.2.10.13.5.0.0.3.13.0.0.0.5.0.0.0.1"],["6R+8R",5,5,"0.0.0.6.12.0.0.18.15.13.2.10.10.13.5.0.0.0.7.9.0.0.0.1.0"],["6R+8R",5,4,"0.0.0.6.12.0.0.18.15.13.2.10.10.13.5.0.0.2.11.9"],["6R+8R",6,4,"0.0.0.6.12.0.0.0.18.15.13.0.2.10.10.13.5.0.0.0.0.3.11.8"],["6R+8R",5,5,"0.0.0.6.12.0.0.18.15.13.2.10.10.13.5.0.0.0.3.13.0.0.0.0.1"],["6R+8R",4,7,"0.6.12.0.18.15.13.0.0.5.7.8.0.7.9.0.0.5.0.0.0.5.0.0.0.1.0.0"],["6R+8R",6,4,"0.0.0.6.12.0.0.0.18.15.13.0.0.0.0.5.7.8.2.10.10.11.9.0"],["6R+8R",6,4,"0.6.12.0.0.0.18.15.13.0.0.0.0.5.7.8.0.0.0.3.11.10.10.8"],["6R+8R",4,7,"0.6.12.0.18.15.13.0.0.5.7.8.0.3.13.0.0.0.5.0.0.0.5.0.0.0.1.0"],["6R+8R",5,6,"0.6.12.0.0.18.15.13.0.0.0.5.7.10.8.0.7.9.0.0.0.5.0.0.0.0.1.0.0.0"],["6R+8R",6,4,"0.0.6.12.0.0.0.18.15.13.0.0.0.0.5.7.10.8.2.10.11.9.0.0"],["6R+8R",5,4,"0.6.12.0.0.18.15.13.0.0.0.5.7.10.8.0.3.11.10.8"],["6R+8R",5,6,"0.6.12.0.0.18.15.13.0.0.0.5.7.10.8.0.3.13.0.0.0.0.5.0.0.0.0.1.0.0"],["6R+8R",6,5,"0.6.12.0.0.0.18.15.13.0.0.0.0.5.7.10.10.8.0.7.9.0.0.0.0.1.0.0.0.0"],["6R+8R",6,4,"0.6.12.0.0.0.18.15.13.0.0.0.0.5.7.10.10.8.2.11.9.0.0.0"],["6R+8R",6,4,"0.6.12.0.0.0.18.15.13.0.0.0.0.5.7.10.10.8.0.3.11.8.0.0"],["6R+8R",6,5,"0.6.12.0.0.0.18.15.13.0.0.0.0.5.7.10.10.8.0.3.13.0.0.0.0.0.1.0.0.0"],["6R+8R",5,5,"0.0.0.6.12.0.0.0.7.13.0.0.2.13.5.2.10.10.15.9.0.0.0.17.0"],["6R+8R",3,7,"0.6.12.0.7.13.2.13.5.18.15.9.0.5.0.0.5.0.0.1.0"],["6R+8R",4,7,"0.6.12.0.0.7.13.0.2.13.5.0.0.3.15.24.0.0.5.0.0.0.5.0.0.0.1.0"],["6R+8R",6,5,"0.6.12.0.0.0.0.7.13.0.0.0.2.13.5.0.0.0.0.3.15.10.10.8.0.0.17.0.0.0"],["6R+8R",4,5,"0.0.6.12.0.0.7.13.2.10.13.5.2.10.15.9.0.0.17.0"],["6R+8R",4,6,"0.0.6.12.0.0.7.13.2.10.13.5.0.18.15.9.0.0.5.0.0.0.1.0"],["6R+8R",5,6,"0.0.6.12.0.0.0.7.13.0.2.10.13.5.0.0.0.3.15.24.0.0.0.5.0.0.0.0.1.0"],["6R+8R",6,5,"0.0.6.12.0.0.0.0.7.13.0.0.2.10.13.5.0.0.0.0.3.15.10.8.0.0.0.17.0.0"],["4R+6R",3,6,"0.0.4.0.0.5.4.20.5.7.15.13.5.7.9.3.9.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.4.0.5.0.7.14.15.24.5.7.9.0.3.9.0.0"],["4R+6R",4,6,"0.4.0.0.0.5.0.0.0.5.0.4.18.15.14.13.0.5.7.9.0.3.9.0"],["4R+6R",5,6,"0.4.0.0.0.0.5.0.0.0.0.5.0.0.0.18.15.14.14.8.0.5.7.9.0.0.3.9.0.0"],["4R+6R",5,6,"0.4.0.0.0.0.5.0.0.0.0.5.0.0.0.18.15.14.12.0.0.5.7.11.8.0.3.9.0.0"],["4R+6R",4,6,"0.4.0.0.0.5.0.0.0.5.0.0.18.15.14.12.0.5.7.13.0.3.9.1"],["4R+6R",4,7,"0.4.0.0.0.5.0.0.0.5.0.0.18.15.14.12.0.5.7.9.0.7.9.0.0.1.0.0"],["4R+6R",4,6,"0.4.0.0.0.5.0.0.0.5.0.0.18.15.14.12.0.5.7.9.2.11.9.0"],["4R+6R",4,6,"0.4.0.0.0.5.0.0.0.5.0.0.18.15.14.12.0.5.7.9.0.3.11.8"],["4R+6R",4,7,"0.4.0.0.0.5.0.0.0.5.0.0.18.15.14.12.0.5.7.9.0.3.13.0.0.0.1.0"],["4R+6R",3,6,"4.0.0.5.0.0.5.20.4.7.15.13.5.7.9.3.9.0"],["4R+6R",4,6,"4.0.0.0.5.0.0.0.5.20.0.0.7.15.14.8.5.7.9.0.3.9.0.0"],["4R+6R",4,6,"4.0.0.0.5.0.0.0.5.20.0.0.7.15.12.0.5.7.11.8.3.9.0.0"],["4R+6R",3,6,"4.0.0.5.0.0.5.20.0.7.15.12.5.7.13.3.9.1"],["4R+6R",3,7,"4.0.0.5.0.0.5.20.0.7.15.12.5.7.9.7.9.0.1.0.0"],["4R+6R",4,6,"0.4.0.0.0.5.0.0.0.5.20.0.0.7.15.12.0.5.7.9.2.11.9.0"],["4R+6R",3,6,"4.0.0.5.0.0.5.20.0.7.15.12.5.7.9.3.11.8"],["4R+6R",3,7,"4.0.0.5.0.0.5.20.0.7.15.12.5.7.9.3.13.0.0.1.0"],["4R+6R",4,6,"0.0.0.4.0.0.0.5.0.0.20.5.2.14.15.13.0.5.7.9.0.3.9.0"],["4R+6R",5,6,"0.0.0.4.0.0.0.0.5.0.0.0.0.5.0.2.14.14.15.24.0.5.7.9.0.0.3.9.0.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.20.5.0.6.15.13.0.5.7.11.8.3.9.0.0"],["4R+6R",3,6,"0.0.4.0.0.5.0.20.5.6.15.13.5.7.13.3.9.1"],["4R+6R",3,7,"0.0.4.0.0.5.0.20.5.6.15.13.5.7.9.7.9.0.1.0.0"],["4R+6R",4,6,"0.0.0.4.0.0.0.5.0.0.20.5.0.6.15.13.0.5.7.9.2.11.9.0"],["4R+6R",3,6,"0.0.4.0.0.5.0.20.5.6.15.13.5.7.9.3.11.8"],["4R+6R",3,7,"0.0.4.0.0.5.0.20.5.6.15.13.5.7.9.3.13.0.0.1.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.6.14.15.24.5.7.11.8.3.9.0.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.6.14.15.24.5.7.13.0.3.9.1.0"],["4R+6R",5,6,"0.0.0.4.0.0.0.0.5.0.0.0.0.5.0.0.6.14.15.24.0.5.7.9.0.2.11.9.0.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.6.14.15.24.5.7.9.0.3.11.8.0"],["4R+6R",4,7,"0.0.4.0.0.0.5.0.0.0.5.0.6.14.15.24.5.7.9.0.3.13.0.0.0.1.0.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.4.5.0.0.7.15.24.6.13.5.0.3.11.9.0"],["4R+6R",3,7,"0.0.4.0.0.5.0.4.5.0.7.13.6.13.5.3.15.9.0.17.0"],["4R+6R",3,6,"0.4.0.0.5.0.0.5.4.18.15.13.6.13.5.3.11.9"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.0.18.15.12.2.14.13.5.0.3.11.9"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.0.18.15.12.0.6.13.5.2.11.11.9"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.2.14.15.24.6.13.5.0.3.11.9.0"],["4R+6R",3,7,"0.0.4.0.0.5.0.0.5.2.14.13.6.13.5.3.15.9.0.17.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.4.6.15.24.7.13.5.0.3.11.9.0"],["4R+6R",5,6,"0.0.0.4.0.0.0.0.5.0.0.0.0.5.0.0.0.6.15.24.2.14.13.5.0.0.3.11.9.0"],["4R+6R",5,6,"0.0.0.4.0.0.0.0.5.0.0.0.0.5.0.0.0.6.15.24.0.6.13.5.0.2.11.11.9.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.0.6.15.24.6.13.5.0.3.11.11.8"],["4R+6R",4,7,"0.0.4.0.0.0.5.0.0.0.5.0.0.6.15.24.6.13.5.0.3.11.13.0.0.0.1.0"],["4R+6R",3,7,"0.0.4.0.0.5.0.0.5.4.6.13.7.13.5.3.15.9.0.17.0"],["4R+6R",4,7,"0.0.0.4.0.0.0.5.0.0.0.5.0.0.6.13.2.14.13.5.0.3.15.9.0.0.17.0"],["4R+6R",3,7,"0.0.4.0.0.5.0.0.5.0.6.13.6.13.5.7.15.9.1.17.0"],["4R+6R",4,7,"0.0.0.4.0.0.0.5.0.0.0.5.0.0.6.13.0.6.13.5.2.11.15.9.0.0.17.0"],["4R+6R",3,7,"0.0.4.0.0.5.0.0.5.0.6.13.6.13.5.3.15.13.0.17.1"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.2.14.15.24.0.5.7.12.0.3.11.9"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.0.6.15.24.0.5.7.12.2.11.11.9"],["6R+8R",3,7,"0.4.0.0.5.0.0.5.0.18.15.12.2.13.5.0.7.13.0.3.9"],["6R+8R",3,7,"0.4.0.0.5.0.0.5.0.0.7.12.2.13.5.18.15.13.0.3.9"],["6R+8R",4,7,"0.0.4.0.0.0.5.0.0.0.5.0.0.6.15.24.2.13.5.0.0.7.13.0.0.3.9.0"],["6R+8R",3,7,"0.0.4.0.0.5.0.0.5.0.6.13.2.13.5.18.15.13.0.3.9"],["6R+8R",4,7,"0.0.4.0.0.0.5.0.0.0.5.0.0.6.13.0.2.13.5.0.0.7.15.24.0.3.9.0"],["6R+8R",4,7,"0.0.4.0.0.0.5.0.0.0.5.0.0.6.13.0.0.5.7.8.18.15.13.0.0.3.9.0"],["6R+8R",4,5,"0.0.4.0.0.0.5.0.4.20.5.0.7.15.11.12.3.11.10.9"],["6R+8R",5,5,"0.0.0.4.0.0.0.0.5.0.0.0.20.5.0.2.14.15.11.12.0.3.11.10.9"],["6R+8R",5,6,"0.0.0.4.0.0.0.0.5.0.0.0.0.5.0.2.14.14.11.12.0.3.15.10.9.0.0.17.0.0"],["6R+8R",4,5,"0.0.0.4.0.0.0.5.0.20.4.5.6.15.11.13.3.11.10.9"],["6R+8R",4,5,"0.0.4.0.0.0.5.0.0.20.5.4.6.15.11.13.3.11.10.9"],["6R+8R",4,6,"0.0.0.4.0.0.0.5.0.20.0.5.6.15.10.13.3.11.14.9.0.0.1.0"],["6R+8R",4,6,"0.0.0.4.0.0.0.5.0.0.4.5.6.14.11.13.3.15.10.9.0.17.0.0"],["6R+8R",5,6,"0.0.0.4.0.0.0.0.5.0.0.0.0.5.0.0.6.14.11.12.2.11.15.10.9.0.0.17.0.0"],["6R+8R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.6.14.11.12.3.15.10.13.0.17.0.1"],["6R+8R",5,6,"0.0.0.4.0.0.0.0.5.0.0.0.0.5.0.6.14.10.15.24.3.11.14.9.0.0.0.1.0.0"],["6R+8R",4,6,"0.0.0.4.0.0.0.5.0.0.0.5.6.14.10.13.3.15.14.9.0.17.1.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.4.5.0.0.7.13.0.18.15.11.12.0.3.10.9"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.2.14.15.24.0.7.11.12.0.3.10.9"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.2.14.13.0.18.15.11.12.0.3.10.9"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.0.6.15.24.0.7.11.12.2.11.10.9"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.0.6.13.4.18.15.11.13.0.3.10.9"],["4R+6R",4,7,"0.0.4.0.0.0.5.0.0.0.5.0.0.6.13.0.18.15.11.12.0.7.10.9.0.1.0.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.0.6.13.0.18.15.11.12.2.11.10.9"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.4.5.0.0.7.15.24.6.11.13.0.3.10.9.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.4.5.0.0.7.13.0.6.11.15.24.3.10.9.0"],["4R+6R",3,6,"0.4.0.0.5.0.0.5.4.18.15.13.6.11.13.3.10.9"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.0.18.15.12.2.14.11.13.0.3.10.9"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.0.18.15.12.0.6.11.13.2.11.10.9"],["4R+6R",5,6,"0.0.4.0.0.0.0.5.0.0.0.0.5.0.0.0.0.7.12.0.2.14.11.15.24.0.3.10.9.0"],["4R+6R",5,6,"0.0.4.0.0.0.0.5.0.0.0.0.5.0.0.0.0.7.12.0.0.6.11.15.24.2.11.10.9.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.2.14.15.24.6.11.13.0.3.10.9.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.2.14.13.0.6.11.15.24.3.10.9.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.4.6.15.24.7.11.13.0.3.10.9.0"],["4R+6R",5,6,"0.0.0.4.0.0.0.0.5.0.0.0.0.5.0.0.0.6.15.24.2.14.11.13.0.0.3.10.9.0"],["4R+6R",5,6,"0.0.0.4.0.0.0.0.5.0.0.0.0.5.0.0.0.6.15.24.0.6.11.13.0.2.11.10.9.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.0.6.15.24.6.11.13.0.3.10.11.8"],["4R+6R",4,7,"0.0.4.0.0.0.5.0.0.0.5.0.0.6.15.24.6.11.13.0.3.10.13.0.0.0.1.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.4.6.13.0.7.11.15.24.3.10.9.0"],["4R+6R",5,6,"0.0.0.4.0.0.0.0.5.0.0.0.0.5.0.0.0.6.13.0.2.14.11.15.24.0.3.10.9.0"],["4R+6R",5,6,"0.0.0.4.0.0.0.0.5.0.0.0.0.5.0.0.0.6.13.0.0.6.11.15.24.2.11.10.9.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.0.6.13.0.6.11.15.24.3.10.11.8"],["4R+6R",4,7,"0.0.4.0.0.0.5.0.0.0.5.0.0.6.13.0.6.11.15.24.3.10.13.0.0.0.1.0"],["6R+8R",4,5,"0.0.0.4.0.0.0.5.0.4.20.5.6.11.15.13.3.10.11.9"],["6R+8R",4,6,"0.0.0.4.0.0.0.5.0.4.0.5.6.11.14.13.3.10.15.9.0.0.17.0"],["6R+8R",4,6,"0.0.0.4.0.0.0.5.0.0.20.5.6.10.15.13.3.14.11.9.0.1.0.0"],["6R+8R",5,6,"0.0.0.4.0.0.0.0.5.0.0.0.0.5.0.6.10.14.15.24.3.14.11.9.0.0.1.0.0.0"],["6R+8R",4,6,"0.0.0.4.0.0.0.5.0.0.0.5.6.10.14.13.3.14.15.9.0.1.17.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.4.0.5.0.7.10.15.24.7.14.9.0.3.9.0.0"],["4R+6R",4,6,"0.0.0.4.0.0.0.5.0.4.0.5.0.7.10.13.18.15.14.9.0.3.9.0"],["4R+6R",5,6,"0.0.0.4.0.0.0.0.5.0.0.0.0.5.0.2.14.10.15.24.0.7.14.9.0.0.3.9.0.0"],["4R+6R",4,6,"0.0.0.4.0.0.0.5.0.0.0.5.2.14.10.13.18.15.14.9.0.3.9.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.6.10.15.24.7.14.11.8.3.9.0.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.6.10.15.24.7.14.13.0.3.9.1.0"],["4R+6R",5,6,"0.0.0.4.0.0.0.0.5.0.0.0.0.5.0.0.6.10.15.24.0.7.14.9.0.2.11.9.0.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.6.10.15.24.7.14.9.0.3.11.8.0"],["4R+6R",4,7,"0.0.4.0.0.0.5.0.0.0.5.0.6.10.15.24.7.14.9.0.3.13.0.0.0.1.0.0"],["4R+6R",5,6,"0.0.0.4.0.0.0.0.5.0.0.0.0.5.0.0.6.10.13.0.18.15.14.11.8.0.3.9.0.0"],["4R+6R",4,6,"0.0.0.4.0.0.0.5.0.0.0.5.0.6.10.13.18.15.14.13.0.3.9.1"],["4R+6R",4,7,"0.0.0.4.0.0.0.5.0.0.0.5.0.6.10.13.18.15.14.9.0.7.9.0.0.1.0.0"],["4R+6R",4,6,"0.0.0.4.0.0.0.5.0.0.0.5.0.6.10.13.18.15.14.9.2.11.9.0"],["4R+6R",4,6,"0.0.0.4.0.0.0.5.0.0.0.5.0.6.10.13.18.15.14.9.0.3.11.8"],["4R+6R",4,7,"0.0.0.4.0.0.0.5.0.0.0.5.0.6.10.13.18.15.14.9.0.3.13.0.0.0.1.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.4.0.5.0.7.10.15.24.3.14.13.0.0.3.9.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.4.0.5.0.7.10.13.0.3.14.15.24.0.3.9.0"],["4R+6R",5,6,"0.0.0.4.0.0.0.0.5.0.0.0.0.5.0.2.14.10.15.24.0.3.14.13.0.0.0.3.9.0"],["4R+6R",5,6,"0.0.0.4.0.0.0.0.5.0.0.0.0.5.0.2.14.10.13.0.0.3.14.15.24.0.0.3.9.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.6.10.15.24.7.14.13.0.1.3.9.0"],["4R+6R",5,6,"0.0.0.4.0.0.0.0.5.0.0.0.0.5.0.0.6.10.15.24.2.11.14.13.0.0.0.3.9.0"],["4R+6R",4,7,"0.0.4.0.0.0.5.0.0.0.5.0.6.10.15.24.3.14.13.0.0.7.9.0.0.1.0.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.6.10.15.24.3.14.13.0.2.11.9.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.6.10.15.24.3.14.13.0.0.3.11.8"],["4R+6R",4,7,"0.0.4.0.0.0.5.0.0.0.5.0.6.10.15.24.3.14.13.0.0.3.13.0.0.0.1.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.6.10.13.0.7.14.15.24.1.3.9.0"],["4R+6R",5,6,"0.0.0.4.0.0.0.0.5.0.0.0.0.5.0.0.6.10.13.0.2.11.14.15.24.0.0.3.9.0"],["4R+6R",4,7,"0.0.4.0.0.0.5.0.0.0.5.0.6.10.13.0.3.14.15.24.0.7.9.0.0.1.0.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.6.10.13.0.3.14.15.24.2.11.9.0"],["4R+6R",4,6,"0.0.4.0.0.0.5.0.0.0.5.0.6.10.13.0.3.14.15.24.0.3.11.8"],["4R+6R",4,7,"0.0.4.0.0.0.5.0.0.0.5.0.6.10.13.0.3.14.15.24.0.3.13.0.0.0.1.0"],["4R+8R",5,4,"0.0.20.0.4.2.10.15.14.13.0.0.7.9.5.0.0.3.10.9"],["4R+8R",6,4,"0.0.20.0.0.0.2.10.15.14.14.8.0.0.7.9.5.0.0.0.3.10.9.0"],["4R+8R",5,5,"0.0.20.0.0.2.10.15.14.12.0.0.7.9.5.0.0.7.10.9.0.0.1.0.0"],["4R+8R",5,4,"0.0.20.0.0.2.10.15.14.12.0.0.7.9.5.0.2.11.10.9"],["4R+8R",6,4,"0.0.20.0.0.0.2.10.15.14.12.0.0.0.7.9.5.0.0.0.3.10.11.8"],["4R+8R",5,5,"0.0.20.0.0.2.10.15.14.12.0.0.7.9.5.0.0.3.10.13.0.0.0.0.1"],["4R+8R",3,5,"0.0.4.4.20.5.7.15.13.7.9.5.3.10.9"],["4R+8R",5,4,"4.20.0.0.0.7.15.14.10.8.7.9.5.0.0.3.10.9.0.0"],["4R+8R",3,6,"4.20.0.7.15.12.7.9.5.7.10.9.5.0.0.1.0.0"],["4R+8R",5,4,"0.0.4.20.0.0.0.7.15.12.0.0.7.9.5.2.10.11.10.9"],["4R+8R",5,4,"4.20.0.0.0.7.15.12.0.0.7.9.5.0.0.3.10.11.10.8"],["4R+8R",3,6,"4.20.0.7.15.12.7.9.5.3.10.13.0.0.5.0.0.1"],["4R+8R",5,4,"4.0.20.0.0.7.14.15.10.8.7.9.5.0.0.3.10.9.0.0"],["4R+8R",4,5,"0.0.4.0.4.0.5.0.7.14.15.24.7.9.5.0.3.10.9.0"],["4R+8R",4,5,"0.0.0.4.0.4.0.5.0.7.14.13.18.15.9.5.0.3.10.9"],["4R+8R",6,4,"0.4.0.0.0.0.0.7.14.14.10.8.18.15.9.5.0.0.0.3.10.9.0.0"],["4R+8R",4,6,"0.4.0.0.0.7.14.12.18.15.9.5.0.7.10.9.0.5.0.0.0.1.0.0"],["4R+8R",5,4,"0.0.4.0.0.0.0.7.14.12.0.18.15.9.5.2.10.11.10.9"],["4R+8R",6,4,"0.4.0.0.0.0.0.7.14.12.0.0.18.15.9.5.0.0.0.3.10.11.10.8"],["4R+8R",4,6,"0.4.0.0.0.7.14.12.18.15.9.5.0.3.10.13.0.0.0.5.0.0.0.1"],["4R+8R",5,5,"0.0.4.0.0.0.0.7.14.12.0.0.7.9.5.2.10.15.10.9.0.0.17.0.0"],["4R+8R",4,6,"0.4.0.0.0.7.14.12.0.7.9.5.18.15.10.9.0.5.0.0.0.1.0.0"],["4R+8R",4,6,"4.0.0.0.7.14.12.0.7.9.5.0.3.10.15.24.0.0.5.0.0.0.1.0"],["4R+8R",5,5,"4.0.0.0.0.7.14.12.0.0.7.9.5.0.0.3.10.15.10.8.0.0.17.0.0"],["4R+8R",3,5,"4.0.0.5.20.4.7.15.13.7.9.5.3.10.9"],["4R+8R",4,5,"4.0.0.0.5.20.0.0.7.15.14.8.7.9.5.0.3.10.9.0"],["4R+8R",3,6,"4.0.0.5.20.0.7.15.12.7.9.5.7.10.9.1.0.0"],["4R+8R",4,5,"0.4.0.0.0.5.20.0.0.7.15.12.0.7.9.5.2.11.10.9"],["4R+8R",4,5,"4.0.0.0.5.20.0.0.7.15.12.0.7.9.5.0.3.10.11.8"],["4R+8R",3,6,"4.0.0.5.20.0.7.15.12.7.9.5.3.10.13.0.0.1"],["4R+8R",4,5,"0.4.0.0.0.5.0.4.0.7.14.13.18.15.9.5.0.3.10.9"],["4R+8R",5,5,"0.4.0.0.0.0.5.0.0.0.0.7.14.14.8.18.15.9.5.0.0.3.10.9.0"],["4R+8R",4,6,"0.4.0.0.0.5.0.0.0.7.14.12.18.15.9.5.0.7.10.9.0.1.0.0"],["4R+8R",4,5,"0.4.0.0.0.5.0.0.0.7.14.12.18.15.9.5.2.11.10.9"],["4R+8R",5,5,"0.4.0.0.0.0.5.0.0.0.0.7.14.12.0.18.15.9.5.0.0.3.10.11.8"],["4R+8R",4,6,"0.4.0.0.0.5.0.0.0.7.14.12.18.15.9.5.0.3.10.13.0.0.0.1"],["4R+8R",3,6,"0.20.4.6.15.13.7.9.5.7.10.9.5.0.0.1.0.0"],["4R+8R",5,4,"0.0.0.20.4.0.0.6.15.13.0.0.7.9.5.2.10.11.10.9"],["4R+8R",5,4,"0.20.4.0.0.6.15.13.0.0.7.9.5.0.0.3.10.11.10.8"],["4R+8R",3,6,"0.20.4.6.15.13.7.9.5.3.10.13.0.0.5.0.0.1"],["4R+8R",3,6,"0.0.4.0.20.5.6.15.13.7.9.5.7.10.9.1.0.0"],["4R+8R",4,5,"0.0.0.4.0.0.20.5.0.6.15.13.0.7.9.5.2.11.10.9"],["4R+8R",4,5,"0.0.4.0.0.20.5.0.6.15.13.0.7.9.5.0.3.10.11.8"],["4R+8R",3,6,"0.0.4.0.20.5.6.15.13.7.9.5.3.10.13.0.0.1"],["4R+8R",4,6,"0.20.0.0.6.15.14.8.7.9.5.0.7.10.9.0.5.0.0.0.1.0.0.0"],["4R+8R",6,4,"0.0.0.20.0.0.0.0.6.15.14.8.0.0.7.9.5.0.2.10.11.10.9.0"],["4R+8R",5,4,"0.20.0.0.0.6.15.14.8.0.7.9.5.0.0.3.10.11.10.8"],["4R+8R",4,6,"0.20.0.0.6.15.14.8.7.9.5.0.3.10.13.0.0.0.5.0.0.0.1.0"],["4R+8R",5,5,"0.20.0.0.0.6.15.14.10.8.7.9.5.0.0.7.10.9.0.0.1.0.0.0.0"],["4R+8R",6,4,"0.0.20.0.0.0.0.6.15.14.10.8.0.7.9.5.0.0.2.11.10.9.0.0"],["4R+8R",5,4,"0.20.0.0.0.6.15.14.10.8.7.9.5.0.0.3.10.11.8.0"],["4R+8R",5,5,"0.20.0.0.0.6.15.14.10.8.7.9.5.0.0.3.10.13.0.0.0.0.1.0.0"],["4R+8R",5,5,"0.20.0.0.0.6.15.12.0.0.7.9.5.0.0.7.10.11.10.8.1.0.0.0.0"],["4R+8R",3,6,"0.20.0.6.15.12.7.9.5.7.10.13.1.0.5.0.0.1"],["4R+8R",4,6,"0.20.0.0.6.15.12.0.7.9.5.0.7.10.11.8.5.0.0.0.1.0.0.0"],["4R+8R",3,6,"0.20.0.6.15.12.7.9.5.7.10.13.5.0.1.1.0.0"],["4R+8R",6,4,"0.0.20.0.0.0.0.6.15.12.0.0.0.7.9.5.0.0.2.11.10.11.10.8"],["4R+8R",4,6,"0.0.20.0.0.6.15.12.0.7.9.5.2.11.10.13.0.0.0.5.0.0.0.1"],["4R+8R",6,4,"0.0.0.20.0.0.0.0.6.15.12.0.0.0.7.9.5.0.2.10.11.10.11.8"],["4R+8R",5,5,"0.0.0.20.0.0.0.6.15.12.0.0.7.9.5.2.10.11.10.13.0.0.0.0.1"],["4R+8R",5,5,"0.0.20.0.0.6.14.15.10.8.7.9.5.0.0.7.10.9.0.0.1.0.0.0.0"],["4R+8R",6,4,"0.0.0.20.0.0.0.6.14.15.10.8.0.7.9.5.0.0.2.11.10.9.0.0"],["4R+8R",5,4,"0.0.20.0.0.6.14.15.10.8.7.9.5.0.0.3.10.11.8.0"],["4R+8R",5,5,"0.0.20.0.0.6.14.15.10.8.7.9.5.0.0.3.10.13.0.0.0.0.1.0.0"],["4R+8R",5,5,"0.0.0.0.4.0.0.6.14.13.0.0.7.9.5.2.10.15.10.9.0.0.17.0.0"],["4R+8R",4,6,"0.0.4.0.6.14.13.0.7.9.5.0.3.10.15.24.0.0.5.0.0.0.1.0"],["4R+8R",5,5,"0.0.4.0.0.6.14.13.0.0.7.9.5.0.0.3.10.15.10.8.0.0.17.0.0"],["4R+8R",4,6,"0.0.4.0.0.0.5.0.6.14.15.24.7.9.5.0.7.10.9.0.1.0.0.0"],["4R+8R",4,5,"0.0.4.0.0.0.5.0.6.14.15.24.7.9.5.0.3.10.11.8"],["4R+8R",4,6,"0.0.4.0.0.0.5.0.6.14.15.24.7.9.5.0.3.10.13.0.0.0.1.0"],["4R+8R",4,5,"6.14.14.8.7.9.5.0.3.10.15.24.0.0.5.0.0.0.1.0"],["4R+8R",5,4,"6.14.14.8.0.7.9.5.0.0.3.10.15.10.8.0.0.17.0.0"],["4R+8R",4,4,"4.20.0.4.7.15.10.13.3.13.0.5.0.3.10.9"],["4R+8R",5,4,"4.20.0.0.0.7.15.10.14.8.3.13.0.5.0.0.3.10.9.0"],["4R+8R",4,4,"4.20.0.0.7.15.10.12.7.13.0.5.1.3.10.9"],["4R+8R",5,4,"0.4.20.0.0.0.7.15.10.12.2.11.13.0.5.0.0.3.10.9"],["4R+8R",4,5,"4.20.0.0.7.15.10.12.3.13.0.5.0.7.10.9.0.1.0.0"],["4R+8R",4,4,"4.20.0.0.7.15.10.12.3.13.0.5.2.11.10.9"],["4R+8R",5,4,"4.20.0.0.0.7.15.10.12.0.3.13.0.5.0.0.3.10.11.8"],["4R+8R",4,5,"4.20.0.0.7.15.10.12.3.13.0.5.0.3.10.13.0.0.0.1"],["4R+8R",4,4,"4.0.0.4.7.14.10.13.3.15.24.5.0.3.10.9"],["4R+8R",5,4,"4.0.0.0.0.7.14.10.14.8.3.15.24.5.0.0.3.10.9.0"],["4R+8R",4,4,"4.0.0.0.7.14.10.12.7.15.24.5.1.3.10.9"],["4R+8R",5,4,"0.4.0.0.0.0.7.14.10.12.2.11.15.24.5.0.0.3.10.9"],["4R+8R",4,5,"4.0.0.0.7.14.10.12.3.15.24.5.0.7.10.9.0.1.0.0"],["4R+8R",4,4,"4.0.0.0.7.14.10.12.3.15.24.5.2.11.10.9"],["4R+8R",5,4,"4.0.0.0.0.7.14.10.12.0.3.15.24.5.0.0.3.10.11.8"],["4R+8R",4,5,"4.0.0.0.7.14.10.12.3.15.24.5.0.3.10.13.0.0.0.1"],["4R+8R",5,4,"0.0.20.0.4.2.14.15.10.13.0.3.13.0.5.0.0.3.10.9"],["4R+8R",6,4,"0.0.20.0.0.0.2.14.15.10.14.8.0.3.13.0.5.0.0.0.3.10.9.0"],["4R+8R",5,4,"0.0.20.0.0.2.14.15.10.12.0.7.13.0.5.0.1.3.10.9"],["4R+8R",5,4,"0.0.20.0.0.2.14.15.10.12.2.11.13.0.5.0.0.3.10.9"],["4R+8R",5,5,"0.0.20.0.0.2.14.15.10.12.0.3.13.0.5.0.0.7.10.9.0.0.1.0.0"],["4R+8R",5,4,"0.0.20.0.0.2.14.15.10.12.0.3.13.0.5.0.2.11.10.9"],["4R+8R",6,4,"0.0.20.0.0.0.2.14.15.10.12.0.0.3.13.0.5.0.0.0.3.10.11.8"],["4R+8R",5,5,"0.0.20.0.0.2.14.15.10.12.0.3.13.0.5.0.0.3.10.13.0.0.0.0.1"],["4R+8R",5,4,"0.0.0.0.4.2.14.14.10.13.0.3.15.24.5.0.0.3.10.9"],["4R+8R",6,3,"2.14.14.10.14.8.0.3.15.24.5.0.0.0.3.10.9.0"],["4R+8R",5,3,"2.14.14.10.12.0.7.15.24.5.0.1.3.10.9"],["4R+8R",5,3,"2.14.14.10.12.2.11.15.24.5.0.0.3.10.9"],["4R+8R",5,4,"2.14.14.10.12.0.3.15.24.5.0.0.7.10.9.0.0.1.0.0"],["4R+8R",5,3,"2.14.14.10.12.0.3.15.24.5.0.2.11.10.9"],["4R+8R",6,3,"2.14.14.10.12.0.0.3.15.24.5.0.0.0.3.10.11.8"],["4R+8R",5,4,"2.14.14.10.12.0.3.15.24.5.0.0.3.10.13.0.0.0.0.1"],["4R+8R",4,4,"0.20.0.4.6.15.10.13.7.13.0.5.1.3.10.9"],["4R+8R",5,4,"0.0.20.0.4.0.6.15.10.13.2.11.13.0.5.0.0.3.10.9"],["4R+8R",4,5,"0.20.0.4.6.15.10.13.3.13.0.5.0.7.10.9.0.1.0.0"],["4R+8R",4,4,"0.20.0.4.6.15.10.13.3.13.0.5.2.11.10.9"],["4R+8R",5,4,"0.20.0.4.0.6.15.10.13.0.3.13.0.5.0.0.3.10.11.8"],["4R+8R",4,5,"0.20.0.4.6.15.10.13.3.13.0.5.0.3.10.13.0.0.0.1"],["4R+8R",5,4,"0.20.0.0.0.6.15.10.14.8.7.13.0.5.0.1.3.10.9.0"],["4R+8R",6,4,"0.0.20.0.0.0.0.6.15.10.14.8.2.11.13.0.5.0.0.0.3.10.9.0"],["4R+8R",5,5,"0.20.0.0.0.6.15.10.14.8.3.13.0.5.0.0.7.10.9.0.0.1.0.0.0"],["4R+8R",5,4,"0.20.0.0.0.6.15.10.14.8.3.13.0.5.0.2.11.10.9.0"],["4R+8R",5,4,"0.20.0.0.0.6.15.10.14.8.3.13.0.5.0.0.3.10.11.8"],["4R+8R",5,5,"0.20.0.0.0.6.15.10.14.8.3.13.0.5.0.0.3.10.13.0.0.0.0.1.0"],["4R+8R",4,5,"0.20.0.0.6.15.10.12.7.13.0.5.1.7.10.9.0.1.0.0"],["4R+8R",5,4,"0.20.0.0.0.6.15.10.12.0.7.13.0.5.0.1.3.10.11.8"],["4R+8R",4,5,"0.20.0.0.6.15.10.12.7.13.0.5.1.3.10.13.0.0.0.1"],["4R+8R",5,5,"0.0.20.0.0.0.6.15.10.12.2.11.13.0.5.0.0.7.10.9.0.0.1.0.0"],["4R+8R",5,4,"0.0.20.0.0.0.6.15.10.12.2.11.13.0.5.0.2.11.10.9"],["4R+8R",6,4,"0.0.20.0.0.0.0.6.15.10.12.0.2.11.13.0.5.0.0.0.3.10.11.8"],["4R+8R",5,5,"0.0.20.0.0.0.6.15.10.12.2.11.13.0.5.0.0.3.10.13.0.0.0.0.1"],["4R+8R",5,5,"0.20.0.0.0.6.15.10.12.0.3.13.0.5.0.0.7.10.11.8.0.1.0.0.0"],["4R+8R",4,5,"0.20.0.0.6.15.10.12.3.13.0.5.0.7.10.13.0.1.0.1"],["4R+8R",5,4,"0.20.0.0.0.6.15.10.12.0.3.13.0.5.0.2.11.10.11.8"],["4R+8R",4,5,"0.20.0.0.6.15.10.12.3.13.0.5.2.11.10.13.0.0.0.1"],["4R+8R",4,4,"0.0.0.4.6.14.10.13.7.15.24.5.1.3.10.9"],["4R+8R",5,4,"0.0.0.0.4.0.6.14.10.13.2.11.15.24.5.0.0.3.10.9"],["4R+8R",4,5,"0.0.0.4.6.14.10.13.3.15.24.5.0.7.10.9.0.1.0.0"],["4R+8R",4,4,"0.0.0.4.6.14.10.13.3.15.24.5.2.11.10.9"],["4R+8R",5,4,"0.0.0.4.0.6.14.10.13.0.3.15.24.5.0.0.3.10.11.8"],["4R+8R",4,5,"0.0.0.4.6.14.10.13.3.15.24.5.0.3.10.13.0.0.0.1"],["4R+8R",5,3,"6.14.10.14.8.7.15.24.5.0.1.3.10.9.0"],["4R+8R",6,3,"0.6.14.10.14.8.2.11.15.24.5.0.0.0.3.10.9.0"],["4R+8R",5,4,"6.14.10.14.8.3.15.24.5.0.0.7.10.9.0.0.1.0.0.0"],["4R+8R",5,3,"6.14.10.14.8.3.15.24.5.0.2.11.10.9.0"],["4R+8R",5,3,"6.14.10.14.8.3.15.24.5.0.0.3.10.11.8"],["4R+8R",5,4,"6.14.10.14.8.3.15.24.5.0.0.3.10.13.0.0.0.0.1.0"],["4R+8R",4,4,"6.14.10.12.7.15.24.5.1.7.10.9.0.1.0.0"],["4R+8R",5,3,"6.14.10.12.0.7.15.24.5.0.1.3.10.11.8"],["4R+8R",4,4,"6.14.10.12.7.15.24.5.1.3.10.13.0.0.0.1"],["4R+8R",5,4,"0.6.14.10.12.2.11.15.24.5.0.0.7.10.9.0.0.1.0.0"],["4R+8R",5,3,"0.6.14.10.12.2.11.15.24.5.0.2.11.10.9"],["4R+8R",6,3,"0.6.14.10.12.0.2.11.15.24.5.0.0.0.3.10.11.8"],["4R+8R",5,4,"0.6.14.10.12.2.11.15.24.5.0.0.3.10.13.0.0.0.0.1"],["4R+8R",5,4,"6.14.10.12.0.3.15.24.5.0.0.7.10.11.8.0.1.0.0.0"],["4R+8R",4,4,"6.14.10.12.3.15.24.5.0.7.10.13.0.1.0.1"],["4R+8R",5,3,"6.14.10.12.0.3.15.24.5.0.2.11.10.11.8"],["4R+8R",4,4,"6.14.10.12.3.15.24.5.2.11.10.13.0.0.0.1"],["4R+8R",3,5,"4.20.4.7.15.13.3.13.5.0.5.5.0.3.9"],["4R+8R",4,5,"4.20.0.0.7.15.14.8.3.13.5.0.0.5.5.0.0.3.9.0"],["4R+8R",3,5,"4.20.0.7.15.12.7.13.5.1.5.5.0.3.9"],["4R+8R",4,5,"0.4.20.0.0.7.15.12.2.11.13.5.0.0.5.5.0.0.3.9"],["4R+8R",3,6,"4.20.0.7.15.12.3.13.5.0.5.5.0.7.9.0.1.0"],["4R+8R",3,5,"4.20.0.7.15.12.3.13.5.0.5.5.2.11.9"],["4R+8R",4,5,"4.20.0.0.7.15.12.0.3.13.5.0.0.5.5.0.0.3.11.8"],["4R+8R",3,6,"4.20.0.7.15.12.3.13.5.0.5.5.0.3.13.0.0.1"],["4R+8R",4,5,"0.0.20.4.2.14.15.13.0.3.13.5.0.0.5.5.0.0.3.9"],["4R+8R",5,5,"0.0.20.0.0.2.14.15.14.8.0.3.13.5.0.0.0.5.5.0.0.0.3.9.0"],["4R+8R",4,5,"0.0.20.0.2.14.15.12.0.7.13.5.0.1.5.5.0.0.3.9"],["4R+8R",4,5,"0.0.20.0.2.14.15.12.2.11.13.5.0.0.5.5.0.0.3.9"],["4R+8R",4,6,"0.0.20.0.2.14.15.12.0.3.13.5.0.0.5.5.0.0.7.9.0.0.1.0"],["4R+8R",4,5,"0.0.20.0.2.14.15.12.0.3.13.5.0.0.5.5.0.2.11.9"],["4R+8R",5,5,"0.0.20.0.0.2.14.15.12.0.0.3.13.5.0.0.0.5.5.0.0.0.3.11.8"],["4R+8R",4,6,"0.0.20.0.2.14.15.12.0.3.13.5.0.0.5.5.0.0.3.13.0.0.0.1"],["4R+8R",3,5,"0.20.4.6.15.13.7.13.5.1.5.5.0.3.9"],["4R+8R",4,5,"0.0.20.4.0.6.15.13.2.11.13.5.0.0.5.5.0.0.3.9"],["4R+8R",3,6,"0.20.4.6.15.13.3.13.5.0.5.5.0.7.9.0.1.0"],["4R+8R",3,5,"0.20.4.6.15.13.3.13.5.0.5.5.2.11.9"],["4R+8R",4,5,"0.20.4.0.6.15.13.0.3.13.5.0.0.5.5.0.0.3.11.8"],["4R+8R",3,6,"0.20.4.6.15.13.3.13.5.0.5.5.0.3.13.0.0.1"],["4R+8R",4,5,"0.20.0.0.6.15.14.8.7.13.5.0.1.5.5.0.0.3.9.0"],["4R+8R",5,5,"0.0.20.0.0.0.6.15.14.8.2.11.13.5.0.0.0.5.5.0.0.0.3.9.0"],["4R+8R",4,6,"0.20.0.0.6.15.14.8.3.13.5.0.0.5.5.0.0.7.9.0.0.1.0.0"],["4R+8R",4,5,"0.20.0.0.6.15.14.8.3.13.5.0.0.5.5.0.2.11.9.0"],["4R+8R",4,5,"0.20.0.0.6.15.14.8.3.13.5.0.0.5.5.0.0.3.11.8"],["4R+8R",4,6,"0.20.0.0.6.15.14.8.3.13.5.0.0.5.5.0.0.3.13.0.0.0.1.0"],["4R+8R",3,6,"0.20.0.6.15.12.7.13.5.1.5.5.0.7.9.0.1.0"],["4R+8R",3,5,"0.20.0.6.15.12.7.13.5.1.5.5.2.11.9"],["4R+8R",4,5,"0.20.0.0.6.15.12.0.7.13.5.0.1.5.5.0.0.3.11.8"],["4R+8R",3,6,"0.20.0.6.15.12.7.13.5.1.5.5.0.3.13.0.0.1"],["4R+8R",4,6,"0.0.20.0.0.6.15.12.2.11.13.5.0.0.5.5.0.0.7.9.0.0.1.0"],["4R+8R",4,5,"0.0.20.0.0.6.15.12.2.11.13.5.0.0.5.5.0.2.11.9"],["4R+8R",5,5,"0.0.20.0.0.0.6.15.12.0.2.11.13.5.0.0.0.5.5.0.0.0.3.11.8"],["4R+8R",4,6,"0.0.20.0.0.6.15.12.2.11.13.5.0.0.5.5.0.0.3.13.0.0.0.1"],["4R+8R",4,6,"0.20.0.0.6.15.12.0.3.13.5.0.0.5.5.0.0.7.11.8.0.1.0.0"],["4R+8R",3,6,"0.20.0.6.15.12.3.13.5.0.5.5.0.7.13.0.1.1"],["4R+8R",4,5,"0.20.0.0.6.15.12.0.3.13.5.0.0.5.5.0.2.11.11.8"],["4R+8R",3,6,"0.20.0.6.15.12.3.13.5.0.5.5.2.11.13.0.0.1"],["6R+8R",5,4,"0.0.20.0.0.2.10.15.14.12.0.2.13.5.5.0.0.3.11.9"],["6R+8R",6,4,"0.0.20.0.0.0.2.10.15.14.12.0.0.0.5.5.7.8.0.0.3.11.9.0"],["6R+8R",5,4,"0.0.4.20.0.0.0.7.15.12.2.10.13.5.5.0.0.3.11.9"],["6R+8R",5,4,"4.20.0.0.0.7.15.12.0.0.5.5.7.10.8.3.11.9.0.0"],["6R+8R",5,5,"0.0.4.0.0.0.0.7.14.12.2.10.13.5.5.0.0.3.15.9.0.0.0.17.0"],["6R+8R",5,5,"4.0.0.0.0.7.14.12.0.0.5.5.7.10.8.3.15.9.0.0.0.17.0.0.0"],["6R+8R",4,5,"0.4.0.0.0.5.0.0.18.15.14.12.2.13.5.5.0.3.11.9"],["6R+8R",5,5,"0.4.0.0.0.0.5.0.0.0.18.15.14.12.0.0.5.5.7.8.0.3.11.9.0"],["6R+8R",4,5,"0.4.0.0.0.5.20.0.0.7.15.12.2.13.5.5.0.3.11.9"],["6R+8R",4,5,"4.0.0.0.5.20.0.0.7.15.12.0.5.5.7.8.3.11.9.0"],["6R+8R",4,6,"0.4.0.0.0.5.0.0.0.7.14.12.2.13.5.5.0.3.15.9.0.0.17.0"],["6R+8R",4,6,"4.0.0.0.5.0.0.0.7.14.12.0.5.5.7.8.3.15.9.0.0.17.0.0"],["6R+8R",5,4,"0.0.0.20.0.0.2.14.15.12.2.10.13.5.5.0.0.3.11.9"],["6R+8R",6,4,"0.0.20.0.0.0.2.14.15.12.0.0.0.5.5.7.10.8.0.3.11.9.0.0"],["6R+8R",5,4,"0.2.14.14.12.2.10.13.5.5.0.0.3.15.9.0.0.0.17.0"],["6R+8R",6,4,"2.14.14.12.0.0.0.5.5.7.10.8.0.3.15.9.0.0.0.0.17.0.0.0"],["6R+8R",5,4,"0.0.0.20.0.2.10.14.15.12.0.2.13.5.5.0.0.3.11.9"],["6R+8R",6,4,"0.0.0.20.0.0.2.10.14.15.12.0.0.0.5.5.7.8.0.0.3.11.9.0"],["6R+8R",5,4,"2.10.14.14.12.0.2.13.5.5.0.0.3.15.9.0.0.0.17.0"],["6R+8R",6,4,"2.10.14.14.12.0.0.0.5.5.7.8.0.0.3.15.9.0.0.0.0.17.0.0"],["6R+6R",4,4,"4.20.0.4.7.15.10.13.5.7.10.9.3.9.0.0"],["6R+6R",5,4,"4.20.0.0.0.7.15.10.14.8.5.7.10.9.0.3.9.0.0.0"],["6R+6R",5,4,"4.20.0.0.0.7.15.10.12.0.5.7.10.11.8.3.9.0.0.0"],["6R+6R",4,4,"4.20.0.0.7.15.10.12.5.7.10.13.3.9.0.1"],["6R+6R",4,5,"4.20.0.0.7.15.10.12.5.7.10.9.7.9.0.0.1.0.0.0"],["6R+6R",5,4,"0.4.20.0.0.0.7.15.10.12.0.5.7.10.9.2.11.9.0.0"],["6R+6R",4,4,"4.20.0.0.7.15.10.12.5.7.10.9.3.11.8.0"],["6R+6R",4,5,"4.20.0.0.7.15.10.12.5.7.10.9.3.13.0.0.0.1.0.0"],["6R+6R",5,4,"0.0.20.0.4.2.14.15.10.13.0.5.7.10.9.0.3.9.0.0"],["6R+6R",6,4,"0.0.20.0.0.0.2.14.15.10.14.8.0.5.7.10.9.0.0.3.9.0.0.0"],["6R+6R",6,4,"0.0.20.0.0.0.2.14.15.10.12.0.0.5.7.10.11.8.0.3.9.0.0.0"],["6R+6R",5,4,"0.0.20.0.0.2.14.15.10.12.0.5.7.10.13.0.3.9.0.1"],["6R+6R",5,5,"0.0.20.0.0.2.14.15.10.12.0.5.7.10.9.0.7.9.0.0.0.1.0.0.0"],["6R+6R",5,4,"0.0.20.0.0.2.14.15.10.12.0.5.7.10.9.2.11.9.0.0"],["6R+6R",5,4,"0.0.20.0.0.2.14.15.10.12.0.5.7.10.9.0.3.11.8.0"],["6R+6R",5,5,"0.0.20.0.0.2.14.15.10.12.0.5.7.10.9.0.3.13.0.0.0.0.1.0.0"],["6R+6R",5,4,"0.20.0.4.0.6.15.10.13.0.5.7.10.11.8.3.9.0.0.0"],["6R+6R",4,4,"0.20.0.4.6.15.10.13.5.7.10.13.3.9.0.1"],["6R+6R",4,5,"0.20.0.4.6.15.10.13.5.7.10.9.7.9.0.0.1.0.0.0"],["6R+6R",5,4,"0.0.20.0.4.0.6.15.10.13.0.5.7.10.9.2.11.9.0.0"],["6R+6R",4,4,"0.20.0.4.6.15.10.13.5.7.10.9.3.11.8.0"],["6R+6R",4,5,"0.20.0.4.6.15.10.13.5.7.10.9.3.13.0.0.0.1.0.0"],["6R+6R",5,4,"0.20.0.0.0.6.15.10.14.8.5.7.10.11.8.3.9.0.0.0"],["6R+6R",5,4,"0.20.0.0.0.6.15.10.14.8.5.7.10.13.0.3.9.0.1.0"],["6R+6R",5,5,"0.20.0.0.0.6.15.10.14.8.5.7.10.9.0.7.9.0.0.0.1.0.0.0.0"],["6R+6R",6,4,"0.0.20.0.0.0.0.6.15.10.14.8.0.5.7.10.9.0.2.11.9.0.0.0"],["6R+6R",5,4,"0.20.0.0.0.6.15.10.14.8.5.7.10.9.0.3.11.8.0.0"],["6R+6R",5,5,"0.20.0.0.0.6.15.10.14.8.5.7.10.9.0.3.13.0.0.0.0.1.0.0.0"],["6R+6R",5,5,"0.20.0.0.0.6.15.10.12.0.5.7.10.11.8.7.9.0.0.0.1.0.0.0.0"],["6R+6R",6,4,"0.0.20.0.0.0.0.6.15.10.12.0.0.5.7.10.11.8.2.11.9.0.0.0"],["6R+6R",5,4,"0.20.0.0.0.6.15.10.12.0.5.7.10.11.8.3.11.8.0.0"],["6R+6R",5,5,"0.20.0.0.0.6.15.10.12.0.5.7.10.11.8.3.13.0.0.0.0.1.0.0.0"],["6R+6R",4,5,"0.20.0.0.6.15.10.12.5.7.10.13.7.9.0.1.1.0.0.0"],["6R+6R",5,4,"0.0.20.0.0.0.6.15.10.12.0.5.7.10.13.2.11.9.0.1"],["6R+6R",4,4,"0.20.0.0.6.15.10.12.5.7.10.13.3.11.8.1"],["6R+6R",4,5,"0.20.0.0.6.15.10.12.5.7.10.13.3.13.0.1.0.1.0.0"],["6R+6R",4,5,"0.20.0.0.6.15.10.12.5.7.10.9.7.11.8.0.1.0.0.0"],["6R+6R",4,5,"0.20.0.0.6.15.10.12.5.7.10.9.7.13.0.0.1.1.0.0"],["6R+6R",5,4,"0.0.20.0.0.0.6.15.10.12.0.5.7.10.9.2.11.11.8.0"],["6R+6R",5,5,"0.0.20.0.0.0.6.15.10.12.0.5.7.10.9.2.11.13.0.0.0.0.1.0.0"]];
+const shapeVal = v => roomOf(v) === CELLAR ? 16 + (v & 15) : v & 15;
+function orient(w, h, g) { // all distinct rotations and mirrors, each as a map of offsets from the Dining Room
+  const rot = (w, h, g) => { const r = []; for (let y = 0; y < w; y++) for (let x = 0; x < h; x++) { const v = g[(h - 1 - x) * w + y]; r.push(v ? (v & 16) | rotl(v & 15) : 0); } return [h, w, r]; };
+  const flip = (w, h, g) => { const r = []; for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const v = g[y * w + (w - 1 - x)], m = v & 15; r.push(v ? (v & 16) | (m & 5) | (m & E ? W : 0) | (m & W ? E : 0) : 0); } return [w, h, r]; };
+  const seen = new Set(), out = [];
+  let cur = [w, h, g];
+  for (let f = 0; f < 2; f++, cur = flip(...cur)) for (let r = 0; r < 4; r++, cur = rot(...cur)) {
+    const key = JSON.stringify(cur);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const [cw, , cg] = cur, c = cg.indexOf(15), map = new Map();
+    cg.forEach((v, i) => { if (v) map.set(`${i % cw - c % cw},${Math.floor(i / cw) - Math.floor(c / cw)}`, v); });
+    out.push(map);
+  }
+  return out;
+}
+// for one plan, every way to pick which rooms hide (Bathroom among dead ends, Study among I, Living Room among T),
+// with the farthest door steps from a breaker room to a hiding room
+function hideOptions(map) {
+  const at = [...map.keys()], val = k => map.get(k), step = { [N]: [0, -1], [E]: [1, 0], [S]: [0, 1], [W]: [-1, 0] };
+  const of = sh => at.filter(k => val(k) < 15 && shapeOf(val(k)) === sh);
+  const dead = of("dead"), I = of("I"), T = of("T"), out = [];
+  for (const bath of dead) for (const study of I) for (const liv of T) {
+    const dist = new Map(), q = [bath, ...I.filter(k => k !== study), ...T.filter(k => k !== liv)];
+    q.forEach(k => dist.set(k, 0));
+    for (let n = 0; n < q.length; n++) {
+      const [x, y] = q[n].split(",").map(Number), m = val(q[n]) & 15;
+      for (const b of [N, E, S, W]) {
+        const nk = `${x + step[b][0]},${y + step[b][1]}`;
+        if ((m & b) && (val(nk) & opp(b)) && !dist.has(nk)) { dist.set(nk, dist.get(q[n]) + 1); q.push(nk); }
+      }
+    }
+    out.push({ bath, study, liv, max: Math.max(...at.filter(k => val(k) !== 15 && val(k) < 16).map(k => dist.get(k))) });
+  }
+  return out;
+}
+// the plan's loops as sets of room offsets: two from a spanning tree, plus their combination when it is one simple loop
+function planLoops(map) {
+  const step = { [N]: [0, -1], [E]: [1, 0], [S]: [0, 1], [W]: [-1, 0] }, nb = k => {
+    const [x, y] = k.split(",").map(Number), m = map.get(k) & 15;
+    return [N, E, S, W].filter(b => m & b).map(b => `${x + step[b][0]},${y + step[b][1]}`).filter(n => map.get(n) & opp([N, E, S, W].find(b => `${x + step[b][0]},${y + step[b][1]}` === n)));
+  };
+  const parent = new Map([["0,0", null]]), q = ["0,0"], extra = [];
+  for (let i = 0; i < q.length; i++) for (const n of nb(q[i])) {
+    if (!parent.has(n)) { parent.set(n, q[i]); q.push(n); }
+    else if (parent.get(q[i]) !== n && q[i] < n) extra.push([q[i], n]);
+  }
+  const up = k => { const p = []; for (; k !== null; k = parent.get(k)) p.push(k); return p; };
+  const edgesOf = ([a, b]) => { const pa = up(a), pb = up(b), meet = pa.find(k => pb.includes(k)), es = new Set([[a, b].sort().join("|")]);
+    for (const p of [pa, pb]) for (let i = 0; p[i] !== meet; i++) es.add([p[i], p[i + 1]].sort().join("|"));
+    return es; };
+  const loopsE = extra.map(edgesOf);
+  if (loopsE.length === 2) { const x = new Set([...loopsE[0], ...loopsE[1]].filter(e => !(loopsE[0].has(e) && loopsE[1].has(e))));
+    const deg = new Map(); x.forEach(e => e.split("|").forEach(k => deg.set(k, (deg.get(k) || 0) + 1)));
+    if ([...deg.values()].every(d => d === 2) && x.size < loopsE[0].size + loopsE[1].size) loopsE.push(x); }
+  return loopsE.map(es => new Set([...es].flatMap(e => e.split("|"))));
+}
+const PLANS = LAYOUTS.flatMap(([name, w, h, s]) => orient(w, h, s.split(".").map(Number)).map(map => ({ name, map, hides: hideOptions(map), loops: planLoops(map) })));
+// fewest rooms still missing to finish another of this plan's loops (0 once both loops are done)
+function toNextLoop(p, placedKeys) {
+  let best = Infinity, open = 0;
+  for (const L of p.loops) { let miss = 0; for (const k of L) if (!placedKeys.has(k)) miss++; if (miss) { open++; best = Math.min(best, miss); } }
+  return p.loops.length - open >= 2 ? 0 : best;
+}
+// best breaker-to-hiding distance a plan can still reach, given which named rooms are already on the table
+function planHide(p, named) {
+  let best = Infinity;
+  for (const o of p.hides) {
+    if (o.max >= best) continue;
+    let ok = true;
+    for (const [k, id] of named) {
+      if ((id === 3 && o.bath === k) || (id === 4 && o.bath !== k) || (id === 5 && o.study !== k) || ((id === 6 || id === 7) && o.study === k)
+        || (id === 11 && o.liv !== k) || ((id === 12 || id === 13) && o.liv === k)) { ok = false; break; }
+    }
+    if (ok) best = o.max;
+  }
+  return best;
+}
+// how deep the worst dead end is: door steps from any room to the nearest room on a loop (to the Dining Room before any loop exists)
+function deadDepth(g, w, h) {
+  const edges = [];
+  g.forEach((v, i) => { if (!v) return; const x = i % w;
+    if (x < w - 1 && (v & E) && (g[i + 1] & W)) edges.push([i, i + 1]);
+    if (i + w < g.length && (v & S) && (g[i + w] & N)) edges.push([i, i + w]); });
+  const linked = (a, b, skip) => { const seen = new Set([a]), q = [a];
+    while (q.length) { const c = q.pop(); if (c === b) return true;
+      edges.forEach((e, j) => { if (j === skip) return; const o = e[0] === c ? e[1] : e[1] === c ? e[0] : -1; if (o >= 0 && !seen.has(o)) { seen.add(o); q.push(o); } }); }
+    return false; };
+  const onLoop = new Set();
+  edges.forEach((e, j) => { if (linked(e[0], e[1], j)) { onLoop.add(e[0]); onLoop.add(e[1]); } });
+  const start = onLoop.size ? [...onLoop] : [g.findIndex(v => roomOf(v) === DINING)], dist = new Map(start.map(i => [i, 0])), q = [...start];
+  for (let n = 0; n < q.length; n++) for (const e of edges) {
+    const o = e[0] === q[n] ? e[1] : e[1] === q[n] ? e[0] : -1;
+    if (o >= 0 && !dist.has(o)) { dist.set(o, dist.get(q[n]) + 1); q.push(o); }
+  }
+  return Math.max(0, ...dist.values());
+}
+console.assert(deadDepth([DINING_V, 2 * 32 + W], 2, 1) === 1 && deadDepth([3 * 32 + (E | S), 3 * 32 + (S | W), 3 * 32 + (N | E), 3 * 32 + (N | W)], 2, 2) === 0, "deadDepth");
+let drawMode = false, lastSpots = new Map();
+const hand = new Set(); // room cards you hold; the game gives each player 3 card slots (Card_One..Three) and no time limit
+const HAND_MAX = 3;
+const history = [];
+function plansLeft() {
+  const d = st.g.findIndex(v => roomOf(v) === DINING);
+  if (d < 0) return [];
+  const placed = [];
+  st.g.forEach((v, i) => { if (v) placed.push([`${i % st.w - d % st.w},${Math.floor(i / st.w) - Math.floor(d / st.w)}`, shapeVal(v)]); });
+  const aim = $("target").value;
+  return PLANS.filter(p => (aim === "any" || (aim === "guide" ? p.name !== "6R+8R" : p.name === aim)) && placed.every(([k, v]) => p.map.get(k) === v));
+}
+// table rooms whose name matters for hiding, as [offset from Dining Room, room id]
+function namedRooms() {
+  const d = st.g.findIndex(v => roomOf(v) === DINING), out = [];
+  st.g.forEach((v, i) => { const id = roomOf(v); if ([3, 4, 5, 6, 7, 11, 12, 13].includes(id)) out.push([`${i % st.w - d % st.w},${Math.floor(i / st.w) - Math.floor(d / st.w)}`, id]); });
+  return out;
+}
+// a new room must open a door onto a door of a room already on the table
+function canPlace(i, mask) {
+  const x = i % st.w, y = Math.floor(i / st.w);
+  return !st.g[i] && [N, E, S, W].some(b => {
+    const [dx, dy] = dirs[b], nx = x + dx, ny = y + dy;
+    return (mask & b) && nx >= 0 && ny >= 0 && nx < st.w && ny < st.h && (st.g[ny * st.w + nx] & opp(b));
+  });
+}
+const fitsShape = (id, val) => id === CELLAR ? val >= 16 : val < 15 && shapeOf(val) === ROOMS[id - 1][2];
+// judge one spot: plans kept, chance the next card from the rest of the deck still has an on-plan spot, and whether it closes a loop
+function judge(i, s, plans) {
+  const d = st.g.findIndex(v => roomOf(v) === DINING), dx = d % st.w, dy = Math.floor(d / st.w);
+  const key = `${i % st.w - dx},${Math.floor(i / st.w) - dy}`, after = plans.filter(p => p.map.get(key) === shapeVal(s.v));
+  const loopsBefore = loops(st.g, st.w, st.h);
+  st.g[i] = s.v;
+  const rest = ROOMS.map((_, k) => k + 1).filter(id => !used(id) && !hand.has(id)); // still in the deck
+  const ok = rest.filter(id => after.some(p => [...p.map].some(([k, val]) => {
+    if (!fitsShape(id, val)) return false;
+    const [ox, oy] = k.split(",").map(Number), x = dx + ox, y = dy + oy;
+    return x >= 0 && y >= 0 && x < st.w && y < st.h && canPlace(y * st.w + x, val & 15);
+  })));
+  s.loop = loops(st.g, st.w, st.h) > loopsBefore;
+  s.dead = deadDepth(st.g, st.w, st.h);
+  const named = namedRooms();
+  s.hide = after.reduce((m, p) => Math.min(m, planHide(p, named)), Infinity);
+  const keys = new Set(st.g.map((v, j) => v ? `${j % st.w - dx},${Math.floor(j / st.w) - dy}` : null).filter(Boolean));
+  s.toLoop = after.reduce((m, p) => Math.min(m, toNextLoop(p, keys)), Infinity);
+  st.g[i] = 0;
+  s.next = rest.length ? ok.length / rest.length : 1;
+  return s;
+}
+// ranking criteria, compared in the order the viewer sets (default: dead end, basement hiding, early loop)
+const CRITERIA = {
+  dead: ["Shallow dead ends", (a, b) => a.dead - b.dead],
+  hide: ["Basement hiding", (a, b) => a.hide - b.hide],
+  loop: ["Early loop", (a, b) => b.loop - a.loop || a.toLoop - b.toLoop],
+  next: ["Next card fits", (a, b) => b.next - a.next],
+  plans: ["Most plans kept", (a, b) => b.n - a.n],
+};
+let priority = ["dead", "hide", "loop", "next", "plans"];
+try { const p = JSON.parse(localStorage.getItem("cabin-priority")); if (Array.isArray(p) && p.length === 5 && p.every(k => CRITERIA[k])) priority = p; } catch {}
+const better = (a, b) => { for (const k of priority) { const d = CRITERIA[k][1](a, b); if (d) return d; } return 0; };
+function renderPriority() {
+  $("priority").innerHTML = "";
+  priority.forEach((k, i) => {
+    const li = document.createElement("li"), up = document.createElement("button"), down = document.createElement("button");
+    up.textContent = "↑"; down.textContent = "↓"; up.disabled = i === 0; down.disabled = i === priority.length - 1;
+    up.setAttribute("aria-label", `Move ${CRITERIA[k][0]} up`); down.setAttribute("aria-label", `Move ${CRITERIA[k][0]} down`);
+    const move = d => { [priority[i], priority[i + d]] = [priority[i + d], priority[i]]; try { localStorage.setItem("cabin-priority", JSON.stringify(priority)); } catch {} renderPriority(); render(); };
+    up.onclick = () => move(-1); down.onclick = () => move(1);
+    const name = document.createElement("span"); name.textContent = CRITERIA[k][0];
+    li.append(name, up, down); $("priority").appendChild(li);
+  });
+}
+const ranked = sp => [...sp].sort((a, b) => better(a[1], b[1]));
+// best move per block over every card in hand; empty when nothing in hand fits a plan
+function handMoves(plans) {
+  const out = new Map();
+  for (const id of hand) for (const [i, s] of spots(id, plans)) {
+    if (!s.n) continue;
+    const cur = out.get(i);
+    if (!cur || better(s, cur) < 0) out.set(i, s);
+  }
+  return out;
+}
+// block index -> best { v, n } for room id: n = plans that place it there; n = 0 means no plan fits, just a legal spot
+function spots(id, plans) {
+  const d = st.g.findIndex(v => roomOf(v) === DINING), out = new Map();
+  if (d < 0) return out;
+  for (const p of plans) for (const [k, val] of p.map) {
+    if (!fitsShape(id, val)) continue;
+    const [dx, dy] = k.split(",").map(Number), x = d % st.w + dx, y = Math.floor(d / st.w) + dy, i = y * st.w + x;
+    if (x < 0 || y < 0 || x >= st.w || y >= st.h || !canPlace(i, val & 15)) continue;
+    const v = id * 32 + (val & 15), cur = out.get(i);
+    if (!cur || cur.v === v) out.set(i, { v, n: (cur ? cur.n : 0) + 1 });
+    else if (!cur.alt) cur.alt = new Map([[cur.v, cur.n]]), cur.alt.set(v, 1);
+    else cur.alt.set(v, (cur.alt.get(v) || 0) + 1);
+  }
+  for (const s of out.values()) if (s.alt) { const [v, n] = [...s.alt].sort((a, b) => b[1] - a[1])[0]; s.v = v; s.n = n; } // best rotation per block
+  if (!out.size) st.g.forEach((v, i) => {
+    let m = BASE[ROOMS[id - 1][2]];
+    for (let r = 0; r < 4 && !out.has(i); r++, m = rotl(m)) if (canPlace(i, m)) out.set(i, { v: id * 32 + m, n: 0, next: 0, loop: false });
+  });
+  else for (const [i, s] of out) judge(i, s, plans);
+  return out;
+}
+function drawSpots(sp) {
+  const ctx = $("room").getContext("2d");
+  ranked(sp).forEach(([i, s], k) => {
+    const bx = (i % st.w) * 4 * C, by = Math.floor(i / st.w) * 4 * C;
+    ctx.globalAlpha = .55;
+    cells(s.v).forEach((col, j) => { ctx.fillStyle = col; ctx.fillRect(bx + (j % 4) * C, by + Math.floor(j / 4) * C, C, C); });
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = k === 0 && s.n ? "#ffe14d" : "#ffffff"; ctx.lineWidth = k === 0 && s.n ? 4 : 2;
+    ctx.strokeRect(bx + 2, by + 2, 4 * C - 4, 4 * C - 4);
+    const r = Math.max(8, C * .55);
+    ctx.fillStyle = "#111111"; ctx.beginPath(); ctx.arc(bx + 2 * C, by + 2 * C, r, 0, 7); ctx.fill();
+    ctx.fillStyle = "#ffffff"; ctx.font = `700 ${Math.round(r)}px system-ui, sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(s.n ? String(k + 1) : "?", bx + 2 * C, by + 2 * C + 1);
+  });
+}
+function drawInfo(plans) {
+  if (!drawMode) return "";
+  const by = {};
+  plans.forEach(p => by[p.name] = (by[p.name] || 0) + 1);
+  const mix = Object.entries(by).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(", ");
+  let s = `<b>Draw mode</b> · ${plans.length ? `${plans.length} full-deck plans still fit (${mix})` : `<span class="bad">no full-deck plan fits this table</span>`}`;
+  if (!hand.size) return s + " · tap each room card you draw to add it to your hand<br>";
+  s += ` · hand: <b>${[...hand].map(id => ROOMS[id - 1][0]).join(", ")}</b>` + (hand.size > HAND_MAX ? ` <span class="bad">(the game holds only ${HAND_MAX} cards)</span>` : "");
+  const top = ranked(lastSpots).slice(0, 3);
+  if (!top.length) return s + `<br><b>Hold.</b> None of your cards keeps a full-deck plan right now; keep them and draw again.<br>`;
+  return s + "<br>" + top.map(([, x], k) =>
+    `<b>${k + 1}</b>: ${ROOMS[roomOf(x.v) - 1][0]} · next card fits ${Math.round(x.next * 100)}% · ${x.n} plans` +
+    ` · breaker to hiding ≤ ${x.hide} · dead end ${x.dead}` + (x.loop ? " · <b>closes a loop</b>" : x.toLoop ? ` · ${x.toLoop} more to a loop` : "")).join("<br>") + "<br>";
+}
+$("drawmode").onclick = () => {
+  drawMode = !drawMode; hand.clear();
+  $("drawmode").textContent = `Draw mode: ${drawMode ? "on" : "off"}`; $("drawmode").setAttribute("aria-pressed", drawMode);
+  if (drawMode && st.g.filter(Boolean).length === 1 && (st.w < 9 || st.h < 9)) { st = fresh(9, 9); $("gw").value = 9; $("gh").value = 9; } // room for any plan around the Dining Room
+  render();
+};
+$("target").onchange = () => render();
+renderPriority();
+$("newgame").onclick =() => { history.push(JSON.stringify(st)); st = fresh(9, 9); hand.clear(); $("gw").value = 9; $("gh").value = 9; render(); };
+$("undo").onclick = () => { // a card placed from the hand goes back into the hand
+  if (!history.length) return;
+  const prev = JSON.parse(history.pop());
+  if (drawMode) st.g.forEach((v, i) => { if (v && !prev.g.includes(v) && !prev.g.some(x => roomOf(x) === roomOf(v))) hand.add(roomOf(v)); });
+  st = prev; $("gw").value = st.w; $("gh").value = st.h; render();
+};
+console.assert(PLANS.length > 718 && PLANS.every(p => p.map.get("0,0") === 15 && p.map.size === 13), "plans");
+console.assert((() => { const s = st; st = fresh(9, 9); hand.add(CELLAR); const n = plansLeft().length, sp = handMoves(plansLeft()); st = s; hand.clear(); return n > 0 && sp.size === 4 && [...sp.values()].every(x => x.n > 0); })(), "draw spots");
+$("copy").onclick =() => navigator.clipboard.writeText($("json").value).then(() => $("copy").textContent = "Copied", () => $("json").select());
+$("load").onclick = () => {
+  try { const d = JSON.parse($("json").value); if (!Array.isArray(d.g) || d.g.length !== d.w * d.h) throw 0; st = { w: d.w, h: d.h, g: toRooms(d.g) }; $("gw").value = d.w; $("gh").value = d.h; render(); }
+  catch { $("info").textContent = "Layout text is not valid. Paste the full text from Copy layout."; }
+};
+
+try { const s = JSON.parse(localStorage.getItem("cabin-blocks-v2")); if (s && Array.isArray(s.g) && s.g.length === s.w * s.h) st = { w: s.w, h: s.h, g: toRooms(s.g) }; } catch {}
+$("gw").value = st.w; $("gh").value = st.h;
+render();
+</script>
