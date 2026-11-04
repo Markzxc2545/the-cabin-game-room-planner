@@ -606,7 +606,7 @@ function drawInfo(plans) {
   const by = {};
   plans.forEach(p => by[p.name] = (by[p.name] || 0) + 1);
   const mix = Object.entries(by).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(", ");
-  let s = `<b>Draw mode</b> · ${plans.length ? `${plans.length} full-deck plans still fit (${mix})` : `<span class="bad">no full-deck plan fits this table</span>`}`;
+  let s = `<b>Draw mode</b> · ${plans.length ? `${plans.length} full-deck plans still fit (${mix})` : `<span class="bad">no full-deck plan fits this table${$("maxdead").value < 99 || $("maxhide").value < 99 ? " with these limits (try Any)" : ""}</span>`}`;
   if (!hand.size) return s + " · tap each room card you draw to add it to your hand<br>";
   s += ` · hand: <b>${[...hand].map(id => ROOMS[id - 1][0]).join(", ")}</b>` + (hand.size > HAND_MAX ? ` <span class="bad">(the game holds only ${HAND_MAX} cards)</span>` : "");
   const top = ranked(lastSpots).slice(0, 3);
