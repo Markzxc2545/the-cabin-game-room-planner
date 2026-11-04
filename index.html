@@ -72,9 +72,11 @@ textarea { width: 100%; box-sizing: border-box; font: 12px ui-monospace, monospa
     <div class="ctrl"><button id="drawmode" aria-pressed="false">Draw mode: off</button><button id="newgame">New game</button><button id="undo">Undo</button></div>
     <label for="target">Aim for <select id="target">
       <option value="guide">Guide types (3)</option>
-      <option value="4R+8R">4R+8R</option><option value="6R+6R">6R+6R</option><option value="4R+6R">4R+6R</option>
+      <option value="4R+8R">4R+8R</option><option value="6R+6R">6R+6R</option><option value="4R+6R">4R+6R</option><option value="6R+8R">6R+8R</option>
       <option value="any">Any two-loop layout</option>
     </select></label>
+    <label for="maxdead">Max dead-end depth <select id="maxdead"><option value="99">Any</option><option value="1">1 door</option><option value="2">2 doors</option><option value="3">3 doors</option></select></label>
+    <label for="maxhide">Max breaker to hiding <select id="maxhide"><option value="99">Any</option><option value="1">1 door</option><option value="2">2 doors</option></select></label>
     <div class="kbd">Rank suggestions by (top matters most):</div>
     <ol class="prio" id="priority"></ol>    <div class="kbd">Turn it on, then tap each room card you draw to put it in your hand (up to 3, like the game). Highlighted blocks show the best card from your hand for each spot, ranked by the list below. Tap a block to play that card there. If nothing is highlighted, hold. Rooms other players place: drag them onto the grid.</div>
     <h2>Room cards</h2>
@@ -431,7 +433,14 @@ function planLoops(map) {
     if ([...deg.values()].every(d => d === 2) && x.size < loopsE[0].size + loopsE[1].size) loopsE.push(x); }
   return loopsE.map(es => new Set([...es].flatMap(e => e.split("|"))));
 }
-const PLANS = LAYOUTS.flatMap(([name, w, h, s]) => orient(w, h, s.split(".").map(Number)).map(map => ({ name, map, hides: hideOptions(map), loops: planLoops(map) })));
+// worst dead end of the finished plan, in door steps from a loop
+function planDead(map) {
+  const ks = [...map.keys()].map(k => k.split(",").map(Number)), x0 = Math.min(...ks.map(k => k[0])), y0 = Math.min(...ks.map(k => k[1]));
+  const w = Math.max(...ks.map(k => k[0])) - x0 + 1, h = Math.max(...ks.map(k => k[1])) - y0 + 1, g = Array(w * h).fill(0);
+  for (const [k, v] of map) { const [x, y] = k.split(",").map(Number); g[(y - y0) * w + x - x0] = v; }
+  return deadDepth(g, w, h);
+}
+const PLANS = LAYOUTS.flatMap(([name, w, h, s]) => orient(w, h, s.split(".").map(Number)).map(map => ({ name, map, hides: hideOptions(map), loops: planLoops(map), dead: planDead(map) })));
 // fewest rooms still missing to finish another of this plan's loops (0 once both loops are done)
 function toNextLoop(p, placedKeys) {
   let best = Infinity, open = 0;
@@ -481,8 +490,9 @@ function plansLeft() {
   if (d < 0) return [];
   const placed = [];
   st.g.forEach((v, i) => { if (v) placed.push([`${i % st.w - d % st.w},${Math.floor(i / st.w) - Math.floor(d / st.w)}`, shapeVal(v)]); });
-  const aim = $("target").value;
-  return PLANS.filter(p => (aim === "any" || (aim === "guide" ? p.name !== "6R+8R" : p.name === aim)) && placed.every(([k, v]) => p.map.get(k) === v));
+  const aim = $("target").value, maxDead = +$("maxdead").value, maxHide = +$("maxhide").value, named = namedRooms();
+  return PLANS.filter(p => (aim === "any" || (aim === "guide" ? p.name !== "6R+8R" : p.name === aim)) && p.dead <= maxDead
+    && placed.every(([k, v]) => p.map.get(k) === v) && (maxHide > 9 || planHide(p, named) <= maxHide));
 }
 // table rooms whose name matters for hiding, as [offset from Dining Room, room id]
 function namedRooms() {
@@ -611,7 +621,7 @@ $("drawmode").onclick = () => {
   if (drawMode && st.g.filter(Boolean).length === 1 && (st.w < 9 || st.h < 9)) { st = fresh(9, 9); $("gw").value = 9; $("gh").value = 9; } // room for any plan around the Dining Room
   render();
 };
-$("target").onchange = () => render();
+$("target").onchange = $("maxdead").onchange = $("maxhide").onchange = () => render();
 renderPriority();
 $("newgame").onclick =() => { history.push(JSON.stringify(st)); st = fresh(9, 9); hand.clear(); $("gw").value = 9; $("gh").value = 9; render(); };
 $("undo").onclick = () => { // a card placed from the hand goes back into the hand
